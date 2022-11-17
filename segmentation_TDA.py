@@ -61,7 +61,7 @@ def get_highest_connectedComponent(img,t):
     return Segmentation
 
 @time_it
-def suggest_t(img,pos=None, N= 25,plot=True,dt_threshold=1,verbose= True,ax=None):
+def suggest_t(img,pos=None, N= 25,plot=True,dt_threshold=.5,verbose= True,ax=None):
     """
 
     :param img:
@@ -87,6 +87,7 @@ def suggest_t(img,pos=None, N= 25,plot=True,dt_threshold=1,verbose= True,ax=None
     S_dt = (S[:-1] - S[1:])*(N/(tmax-0.01))
 
     S_dt_norm = len(S_dt)*S_dt/S_dt.sum()
+    # S_dt_norm /= S_dt_norm.max()
     best_t = -1
     id = N-2
     while best_t < 0:
@@ -103,17 +104,25 @@ def suggest_t(img,pos=None, N= 25,plot=True,dt_threshold=1,verbose= True,ax=None
     if plot or not ax is None:
         if ax is None:
             fig, ax = plt.subplots(1, 1,
-                                    figsize = (6,2),
+                                    figsize = (6,6),
                                     constrained_layout=True)
         f = ax.plot(t_list,S,'C1o-',label='f')
         ax.plot([best_t,best_t],[0,S.max()],'C3--')
-        ax.text(best_t + .01,.9*S.max(),f"t = {best_t:.3f}",c='C3')
+        ax.text(best_t + .01,.8*S.max(),f"t = {best_t:.3f}",c='C3')
         # plt.scatter(t_list,S)
         axt = ax.twinx()
-        df = axt.plot(np.linspace(0,tmax,N)[:-1],S_dt,
-                 'C2o--',label='df')
+        df = axt.plot(np.linspace(0,tmax,N)[:-1],S_dt_norm,
+                 'C2o--',label='df normalized')
         lns = f+df
         labs = [l.get_label() for l in lns]
+
+        ax.set_xlabel("time")
+        ax.set_ylabel("f")
+        axt.set_ylabel("df")
+
+        ax.yaxis.get_label().set_color(f[0].get_color())
+        axt.yaxis.get_label().set_color(df[0].get_color())
+
         ax.legend(lns, labs,loc='upper right')
         if ax is None: plt.show()
     return best_t,S,S_dt,t_list
