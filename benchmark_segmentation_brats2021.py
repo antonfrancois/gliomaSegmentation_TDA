@@ -1,12 +1,13 @@
 import torch
+import numpy as np
+import matplotlib.pyplot as plt
 
-import __init__
-import my_torchbox as tb
-import my_toolbox as tlb
-from constants import *
+import parseBrats as tb
+# import my_toolbox as tlb
+from misc import *
 import csv
 import pandas as pd
-from persistent_homology.segmentation_TDA import *
+from segmentation_TDA import *
 import scipy
 import image_3d_visualisation as i3v
 import matplotlib as mpl
@@ -186,13 +187,13 @@ def compute_dices(seg_list,seg_real):
     dice_list=[]
     for sl in seg_list:
         # dice_1
-        dice_TC = tlb.dice((sl==1).astype(int),(seg_real==1).astype(int))
+        dice_TC = DICE((sl==1).astype(int),(seg_real==1).astype(int))
         # dice_2
-        dice_WT = tlb.dice((sl==2).astype(int),(seg_real==2).astype(int))
+        dice_WT = DICE((sl==2).astype(int),(seg_real==2).astype(int))
         # dice_3
-        dice_ET = tlb.dice((sl==4).astype(int),(seg_real==4).astype(int))
+        dice_ET = DICE((sl==4).astype(int),(seg_real==4).astype(int))
         # dice_4
-        dice_union = tlb.dice((sl>=1).astype(int),(seg_real>=1).astype(int))
+        dice_union = DICE((sl>=1).astype(int),(seg_real>=1).astype(int))
 
         dice_list.append([dice_TC,dice_WT,dice_ET,dice_union])
     return dice_list

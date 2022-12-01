@@ -10,6 +10,15 @@ DLT_KW_IMAGE = dict(cmap='gray',
                       # extent=[-1,1,-1,1],
                       origin='lower',
                       vmin=0,vmax=1)
+
+# ---------- Metric -------------------------------------------
+
+def DICE(seg_1,seg_2):
+    prod_seg = seg_1 * seg_2
+    sum_seg = seg_1 + seg_2
+    return 2*prod_seg.sum() / sum_seg.sum()
+
+
 # __________ matplotlib _______________________________________
 def set_ticks_off(ax):
     try:
