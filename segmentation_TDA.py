@@ -1,3 +1,5 @@
+import warnings
+
 import scipy
 import scipy.ndimage as ndimage
 import skimage
@@ -73,46 +75,54 @@ def suggest_t(img,pos=None, N= 25,plot=True,dt_threshold=.5,verbose= True,ax=Non
     :return:
     """
     if verbose : print('suggest_t : Compute curve... ')
-    S = []
 
     tmax = img.max()  if pos is None else img[pos[0],pos[1],pos[2]]
-    t_list = np.linspace(0.01,tmax,N)
-    for t in t_list:
+    t_list = np.linspace(0.01,tmax,N+1)
+    filtr = np.zeros(t_list.shape)
+    for i,t in enumerate(t_list):
         if pos is None:
-            CC = get_highest_connectedComponent(img,t)
+            cc = get_highest_connectedComponent(img,t)
         else:
-            CC = GetConnectedComponent(img,pos,t)
-        S.append(np.sum(CC==1))
-    S = np.array(S)
-    S_dt = (S[:-1] - S[1:])*(N/(tmax-0.01))
+            cc = GetConnectedComponent(img,pos,t)
+        filtr[i] = np.sum(cc==1)
+    filtr_dt = (filtr[:-1] - filtr[1:])*(N/(tmax-0.01))
+    filtr_dt_norm = len(filtr_dt)*filtr_dt/filtr_dt.sum()
 
-    S_dt_norm = len(S_dt)*S_dt/S_dt.sum()
-    # S_dt_norm /= S_dt_norm.max()
-    best_t = -1
-    id = N-2
-    while best_t < 0:
-        dt = S_dt_norm[id]
-        if dt > dt_threshold:
-            best_dt = dt
-            best_i = id+2
-            best_t = t_list[id+2]
-            print('best_t :',best_t)
-            break
-        else:
-            id -= 1
+    # best_t = -1
+    # index = N-2
+    # while best_t < 0:
+    #     dt = filtr_dt_norm[index]
+    #     if dt > dt_threshold:
+    #         best_dt = dt
+    #         best_i = index+2
+    #         best_t = t_list[index+2]
+    #         print('best_t :',best_t)
+    #         break
+    #     elif index == 0:
+    #         warnings.warn("No best t found, ajdust dt_threshold")
+    #         return 0
+    #     else:
+    #         index -= 1
+
+    best_i = np.where(filtr_dt_norm>dt_threshold)[0][-1]
+    best_t = t_list[best_i+1]
+
     # Plot
     if plot or not ax is None:
+        c1,c2,c3 = 'forestgreen','firebrick','goldenrod'
         if ax is None:
             fig, ax = plt.subplots(1, 1,
                                     figsize = (6,6),
                                     constrained_layout=True)
-        f = ax.plot(t_list,S,'C1o-',label='f')
-        ax.plot([best_t,best_t],[0,S.max()],'C3--')
-        ax.text(best_t + .01,.8*S.max(),f"t = {best_t:.3f}",c='C3')
-        # plt.scatter(t_list,S)
+        f = ax.plot(t_list,filtr,'o-',label='f',c=c1)
+        ax.plot([best_t,best_t],[0,filtr.max()],'--',c=c2)
+        ax.text(best_t + .01,.8*filtr.max(),f"t = {best_t:.3f}",c=c2)
+        # plt.scatter(t_list,filtr)
         axt = ax.twinx()
-        df = axt.plot(np.linspace(0,tmax,N)[:-1],S_dt_norm,
-                 'C2o--',label='df normalized')
+        df = axt.plot(t_list[:-1],filtr_dt_norm,
+                 'D--',
+                c=c3,
+                label='df normalized')
         lns = f+df
         labs = [l.get_label() for l in lns]
 
@@ -125,7 +135,7 @@ def suggest_t(img,pos=None, N= 25,plot=True,dt_threshold=.5,verbose= True,ax=Non
 
         ax.legend(lns, labs,loc='upper right')
         if ax is None: plt.show()
-    return best_t,S,S_dt,t_list
+    return best_t,filtr,filtr_dt_norm,t_list
 
 @time_it
 def Segmentation(img_flair,img_t1ce,n_H2=1, plot=False,verbose=True):
