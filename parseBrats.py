@@ -6,7 +6,7 @@ import torch
 from nibabel import load as nib_load
 import nrrd
 from skimage.exposure import match_histograms
-
+from dog import dog_img as edge_Dog
 
 
 from misc import *
@@ -33,7 +33,9 @@ def nib_normalize(img,method='mean'):
     return img
 
 def open_nib(folder_name,irm_type,data_base,format= '.nii.gz',normalize=True, to_torch =True):
-
+    """
+    to get a nib, use normalise = False and to_torch = False
+    """
     if data_base == 'brats':
         path = ROOT_DIRECTORY+ '/../data/brats/'
     elif data_base == 'brats_2021':
@@ -49,7 +51,7 @@ def open_nib(folder_name,irm_type,data_base,format= '.nii.gz',normalize=True, to
         method = normalize
         normalize = True
     if normalize:
-        print(f">I am normalizinf {normalize}")
+        # print(f">I am normalizinf {normalize}")
         img = nib_normalize(img,method=method)
     if to_torch: return torch.Tensor(img)[None,None]
     else: return img_nib
@@ -156,6 +158,13 @@ class parse_brats:
             vesi[mask_correction>0] =0
         return torch.tensor( vesi_pad)[None,None]
 
+    def get_edges(self,index, modality):
+        nib_im,seg = self.__call__(index,to_torch=False,modality=modality,get_nib= True)
+        edges_im_nib = edge_Dog(nib_im, fwhm=3)
+        edges_seg_nib = edge_Dog(seg, fwhm=3)
+        return edges_im_nib.get_fdata(),edges_seg_nib.get_fdata()
+
+
     def _read_landmarks_csv_(self,file):
         with open(file) as csv_f:
             csv_reader = csv.DictReader(csv_f,delimiter=',')
@@ -187,17 +196,22 @@ class parse_brats:
             return (ldk_0,ldk_1)
         return (None,ldk_1)
 
-    def _call_brats_2021_(self,index,to_torch,normalize=False):
+    def _call_brats_2021_(self,index,to_torch,normalize=False, get_nib= False):
         brats_name = self.brats_list[index]
-        print("mean")
-        gliom = open_nib(brats_name,self.modality.lower(),'brats_2021',normalize='min_max',to_torch=False)
+        gliom = open_nib(brats_name,self.modality.lower(),'brats_2021',
+                         normalize= False if get_nib else 'min_max',
+                         to_torch=False
+                         )
         segmentation_tumor = open_nib(brats_name,'seg','brats_2021',normalize=False,to_torch=to_torch)
+        if get_nib:
+            return (gliom,segmentation_tumor)
         if to_torch:
             segmentation_tumor[segmentation_tumor== 2] = .5
             segmentation_tumor[segmentation_tumor == 4] = 1
         else: segmentation_tumor = segmentation_tumor.get_fdata()
         # gliom = nib.load("/Users/maillard/Downloads/RSNA_ASNR_MICCAI_BraTS2021_TrainingData_16July2021/BraTS2021_00008/BraTS2021_000_T1.nii.gz")
         # histogram normalisation
+
         gliom_img = gliom.get_fdata()
         if self.flag_get_template and normalize:
             gliom_img[gliom_img > 0] = match_histograms(gliom_img[gliom_img > 0], self.template_img[self.template_img > 0])
@@ -287,7 +301,9 @@ class parse_brats:
                  modality = None,
                  scale=0,
                  rigidly_reg=False,
-                 normalize=False):
+                 normalize=False,
+                 get_nib=False
+                 ):
         """ Open the brats folder in self.brats_list at the desired index
 
         :param index: must be int < len(brats_list)
@@ -299,7 +315,7 @@ class parse_brats:
         if not modality is None:
             self.modality = modality
         if self.flag_brats_2021:
-            return self._call_brats_2021_(index,to_torch,normalize=normalize)
+            return self._call_brats_2021_(index,to_torch,normalize=normalize,get_nib=get_nib)
         if self.flag_bratsReg_2022:
             return self._call_bratsReg_2022(index,to_torch,scale,rigidly_reg=rigidly_reg)
         # source = nib.Nifti1Image(source_img, self.template_affine)
