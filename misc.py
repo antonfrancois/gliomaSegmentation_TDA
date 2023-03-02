@@ -1,19 +1,76 @@
 from time import time
-import os
+import os,sys
 import numpy as np
 import scipy.ndimage as scipynd
 from matplotlib.colors import ListedColormap
+from nibabel import Nifti1Image
+import dog
 
 ROOT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
-DLT_EDGES_THRSLD = .0625
-
+# DLT_EDGES_THRSLD = .0625
+DLT_EDGES_THRSLD = .1
 # ---------- Metric -------------------------------------------
 
 def DICE(seg_1,seg_2):
+    if seg_1.max() == 0 or seg_2.max() == 0:
+        return 0
     prod_seg = seg_1 * seg_2
     sum_seg = seg_1 + seg_2
     return 2*prod_seg.sum() / sum_seg.sum()
+
+def edgesSobel(img,thrsld = DLT_EDGES_THRSLD):
+    sx = scipynd.sobel(img, axis=0, mode='constant')
+    sy = scipynd.sobel(img, axis=1, mode='constant')
+    sz = scipynd.sobel(img, axis=2, mode='constant')
+    sobel = np.sqrt(sx**2 + sy**2 + sz**2 )
+
+    if thrsld is None:
+        return sobel
+    edges = np.zeros(sobel.shape)
+    mask = (sobel > sobel.max()*thrsld)
+    edges[mask ] = 1
+    return edges
+
+def edgesDog(img,fwhm= 6,dilat =1):
+    # convert img to nifty
+    nib_im = Nifti1Image(img,affine=np.eye(4))
+    try:
+        edges_im_nib = dog.dog_img(nib_im, fwhm=fwhm).get_fdata()
+    except ValueError:
+        return np.zeros(img.shape)
+    if dilat >0:
+        edges_im_nib = scipynd.binary_dilation(edges_im_nib,iterations=dilat).astype(float)
+    return edges_im_nib
+
+# @time_it
+class EdgesMatch_Dice:
+    """ Classe meusurant à quel point les bords de la
+    segmentation sont inclus dans ceux de l'image.
+    Pour l'optimisation, on ne calcule qu'une fois les bords
+    de l'image. Les bords sont obtenus à partir d'un filtre
+    de sobel 3D.
+
+    Usage:
+    `EdgesMatch_Dice(img,None)(seg)`
+
+    """
+    def __init__(self,img):
+        """
+        img : numpy array
+        thrsld : valeur entre 0 et 1
+        """
+        self.img_edges = edgesDog(img,fwhm=6,dilat=0)
+
+    def __call__(self, seg):
+        self.seg_edges = edgesDog(seg,fwhm=6,dilat=0)
+        intersect = self.img_edges * self.seg_edges
+        return DICE(intersect,self.seg_edges)
+
+# @time_it
+def edges_DiceMatch(img,seg):
+    return  EdgesMatch_Dice(img)(seg)
+
 
 
 # __________ matplotlib _______________________________________
@@ -61,8 +118,31 @@ def imCmp(I1, I2, method='supperpose'):
     elif method == 'supperpose weighted':
         abs_diff = np.abs(I1 - I2)[:,:,None]
         return 1- abs_diff/abs_diff.max() * np.concatenate((I2[:, :, None], I1[:, :, None], np.zeros((M, N, 1))), axis=2)
+    elif 'seg' in method:
+        u = I2[:,:,None] * I1[:, :, None]
+        if 'w' in method:
+            return np.concatenate(
+                (
+                    I1[:, :, None],
+                    u + I2[:,:,None]*.5,
+                    I2[:,:,None],
+                    np.ones((M,N,1))
+                    # np.maximum(I2[:,:,None], I1[:, :, None])
+                ), axis=2
+            )
+        else:
+            return np.concatenate(
+                    (
+                        I1[:, :, None] - u,
+                        u,
+                        I2[:,:,None] - u,
+                        np.ones((M,N,1))
+                        # np.maximum(I2[:,:,None], I1[:, :, None])
+                    ), axis=2
+                )
+
     else:
-        raise ValueError(f"method must be in [ 'supperpose','substract','supperpose weighted' ] got {method}")
+        raise ValueError(f"method must be in [ 'supperpose','substract','supperpose weighted', 'seg','seg white' ] got {method}")
 
 def image_slice(I,coord,dim):
     coord = int(coord)
