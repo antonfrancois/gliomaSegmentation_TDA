@@ -35,7 +35,7 @@ import time
 #         msg = 'Execution time: '+repr(round(elapsed_time_secs))+' s.'+linebreak
 #     sys.stdout.write(msg); sys.stdout.flush()
 
-def GetConnectedComponent(img, pos, t):
+def getConnectedComponent(img, pos, t):
     '''
     Get the connected component of the voxel pos = (x,y,z) at time t.
     The output is a binary image.
@@ -49,18 +49,30 @@ def GetConnectedComponent(img, pos, t):
     if labeltumor==0: print('Problem! The label is background :(')
     return imtumor
 
-def argmax_image(img):
+def argmax_image(img,sign=-1):
     N = len(np.shape(img))
     s = img.shape
-    new_shp = s[:-N] + (np.prod(s[-N:]),)
+    new_shp = s[:sign*N] + (np.prod(s[sign*N:]),)
     max_idx = img.reshape(new_shp).argmax(-1)
-    return np.unravel_index(max_idx, s[-N:])
+    return np.unravel_index(max_idx, s[sign*N:])
 
 def get_highest_connectedComponent(img,t):
     pos = argmax_image(img)
     # Filtration
-    Segmentation = GetConnectedComponent(img, pos, t)
+    Segmentation = getConnectedComponent(img, pos, t)
     return Segmentation
+
+def get_largest_CC(img, t, verbose=False):
+    imgt = (img>=t)*1
+    Labels = skimage.measure.label(imgt, background=0)
+    nlabels = np.max(Labels)
+
+    CardinalLabels = [0]+[np.sum(Labels==i) for i in range(1,nlabels)]
+    ilabel = np.argmax(CardinalLabels)
+    CC = (Labels==ilabel)*1
+
+    if verbose: print('There are', np.max(CardinalLabels), 'labels')
+    return CC
 
 @time_it
 def suggest_t(img,pos=None, N= 25,plot=True,dt_threshold=.5,verbose= True,ax=None):
@@ -76,14 +88,14 @@ def suggest_t(img,pos=None, N= 25,plot=True,dt_threshold=.5,verbose= True,ax=Non
     """
     if verbose : print('suggest_t : Compute curve... ')
 
-    tmax = img.max()  if pos is None else img[pos[0],pos[1],pos[2]]
+    tmax = 1  if pos is None else img[pos[0],pos[1],pos[2]]
     t_list = np.linspace(0.01,tmax,N+1)
-    filtr = np.zeros(t_list.shape)
-    for i,t in enumerate(t_list):
-        if pos is None:
-            cc = get_highest_connectedComponent(img,t)
-        else:
-            cc = GetConnectedComponent(img,pos,t)
+    if pos is None:
+        filtr = np.array([np.sum(img>t) for t in t_list])
+    else:
+        filtr = np.zeros(t_list.shape)
+        for i,t in enumerate(t_list):
+            cc = getConnectedComponent(img, pos, t)
         filtr[i] = np.sum(cc==1)
     filtr_dt = (filtr[:-1] - filtr[1:])*(N/(tmax-0.01))
     filtr_dt_norm = len(filtr_dt)*filtr_dt/filtr_dt.sum()
@@ -157,7 +169,7 @@ def Segmentation(img_flair,img_t1ce,n_H2=1, plot=False,verbose=True):
 
     # 2 - Get segmentation
     pos = argmax_image(img_flair)
-    Segmentation = GetConnectedComponent(img_flair, pos, t)
+    Segmentation = getConnectedComponent(img_flair, pos, t)
 
     # Plot segmentation
     if plot:
@@ -198,7 +210,7 @@ def Segmentation(img_flair,img_t1ce,n_H2=1, plot=False,verbose=True):
 
         # Segmentation
         t = bar[0]+0.0001
-        Segmentation_t1ce = GetConnectedComponent(SegmentationColors, pos, 1-t)
+        Segmentation_t1ce = getConnectedComponent(SegmentationColors, pos, 1 - t)
 
         # Plot
         if plot:
@@ -307,7 +319,7 @@ if __name__ == '__main__':
 
     # Filtration
 
-    segmentation = GetConnectedComponent(img, pos, t)
+    segmentation = getConnectedComponent(img, pos, t)
 
     # Plot
 
