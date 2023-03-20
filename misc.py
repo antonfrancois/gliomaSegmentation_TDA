@@ -74,11 +74,17 @@ def edges_DiceMatch(img,seg):
 
 
 # __________ matplotlib _______________________________________
+# cmap_segs = ListedColormap(
+#     [[0,0,0,0],
+#      "F6AE2D",#'tab:red',
+#      'tab:blue',
+#      'tab:orange',
+#      ])
 cmap_segs = ListedColormap(
     [[0,0,0,0],
-     'tab:red',
-     'tab:blue',
-     'tab:orange'
+     "#F6AE2D",#Hunyardi Yellow
+     '#08B2E3',# Process Cyan
+     '#C65CC0', #French mauve
      ])
 DLT_KW_GRIDSAMPLE = dict(padding_mode="border",
                          align_corners=True
