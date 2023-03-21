@@ -82,8 +82,8 @@ def edges_DiceMatch(img,seg):
 #      ])
 cmap_segs = ListedColormap(
     [[0,0,0,0],
-     "#F6AE2D",#Hunyardi Yellow
      '#08B2E3',# Process Cyan
+     "#F6AE2D",#Hunyardi Yellow
      '#C65CC0', #French mauve
      ])
 DLT_KW_GRIDSAMPLE = dict(padding_mode="border",
