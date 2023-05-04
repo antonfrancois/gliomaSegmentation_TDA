@@ -56,7 +56,7 @@ def open_nib(folder_name,irm_type,data_base,format= '.nii.gz',normalize=True, to
     if to_torch: return torch.Tensor(img)[None,None]
     else: return img_nib
 
-class parse_brats:
+class Parse_brats:
 
     def __init__(self,brats_list=None,
                  template_folder=None,

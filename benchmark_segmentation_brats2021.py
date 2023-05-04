@@ -58,7 +58,7 @@ def Segmentations(img_flair,img_t1ce,n_H2=1,dt_threshold=1,plot=False,verbose =F
     t,_,_,_ = suggest_t(img_flair, pos=pos, N=100, dt_threshold=dt_threshold, plot=plot, verbose=verbose)
 
     # 2 - Get segmentation
-    Segmentation = GetConnectedComponent(img_flair, pos, t)
+    Segmentation = getConnectedComponent(img_flair, pos, t)
 
     # 2' - Test for topology - add isolated pixels
     labels, nlabels = scipy.ndimage.label(1-Segmentation)
@@ -114,7 +114,7 @@ def Segmentations(img_flair,img_t1ce,n_H2=1,dt_threshold=1,plot=False,verbose =F
 
             # Segmentation
             t = bar[0]+0.0001
-            Segmentation_t1ce = GetConnectedComponent(SegmentationColors, pos, 1-t)
+            Segmentation_t1ce = getConnectedComponent(SegmentationColors, pos, 1 - t)
 
             # Plot
             if plot: PlotMask(Segmentation_t1ce, img_t1ce, pos, title='Segmentation tumeur')
