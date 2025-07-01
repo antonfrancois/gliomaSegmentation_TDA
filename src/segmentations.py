@@ -1,39 +1,39 @@
-import warnings
+"""---------------------------------------------------------------------------------------------------------------------
 
-import scipy
-import scipy.ndimage as ndimage
-import skimage
-import vedo
-import numpy as np
-# import my_torchbox as tb
-import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap
-from misc import *
-import parseBrats as pb
+Train-Free Segmentation in MRI with Cubical Persistent Homology
+Anton François & Raphaël Tinarrage
+See the repo at https://github.com/antonfrancois/gliomaSegmentation_TDA and article at https://arxiv.org/abs/2401.01160
+
+------------------------------------------------------------------------------------------------------------------------
+
+This module...
+
+------------------------------------------------------------------------------------------------------------------------
+
+Linear algebra:
+
+---------------------------------------------------------------------------------------------------------------------"""
+
+# Standard imports.
 import sys
 import time
+import warnings
 
-# TDA
+# Third-party imports.
+import numpy as np
+import scipy
+import skimage
+import vedo
+import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 import persim
 import cripser
 
-# Comments
-import sys
-import time
+# Local imports.
+# from misc import *
+import parseBrats as pb
 
-
-# def ChronometerStart(msg='Start... '):
-#     start_time = time.time()
-#     sys.stdout.write(msg); sys.stdout.flush()
-#     return start_time
-#
-# def ChronometerStop(start_time, method='ms', linebreak='\n'):
-#     elapsed_time_secs = time.time() - start_time
-#     if method == 'ms':
-#         msg = 'Execution time: '+repr(round(elapsed_time_secs*1000))+' ms.'+linebreak
-#     if method == 's':
-#         msg = 'Execution time: '+repr(round(elapsed_time_secs))+' s.'+linebreak
-#     sys.stdout.write(msg); sys.stdout.flush()
+# Comment
 
 def getConnectedComponent(img, pos, t):
     '''
@@ -74,7 +74,7 @@ def get_largest_CC(img, t, verbose=False):
     if verbose: print('There are', np.max(CardinalLabels), 'labels')
     return CC
 
-@time_it
+# @time_it
 def suggest_t(img,pos=None, N= 25,plot=True,dt_threshold=.5,verbose= True,ax=None):
     """
 
@@ -149,7 +149,7 @@ def suggest_t(img,pos=None, N= 25,plot=True,dt_threshold=.5,verbose= True,ax=Non
         if ax is None: plt.show()
     return best_t,filtr,filtr_dt_norm,t_list
 
-@time_it
+# @time_it
 def Segmentation(img_flair,img_t1ce,n_H2=1, plot=False,verbose=True):
     # Plot images
     if plot:

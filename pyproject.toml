@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "gliomasegmentation-tda"
+version = "0.1.0"
+description = "Train-Free Segmentation in MRI with Cubical Persistent Homology"
+authors = ["Anton François <anton.francois134@gmail.com>", "Raphaël Tinarrage <raphael.tinarrage@ist.ac.at>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+numpy = "^2.3.1"
+scipy = "^1.16.0"
+matplotlib = "^3.10.3"
+scikit-image = "^0.25.2"
+vedo = "^2025.5.4"
+cripser = "^0.0.15"
+nibabel = "^5.3.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

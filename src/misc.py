@@ -10,6 +10,20 @@ ROOT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
 # DLT_EDGES_THRSLD = .0625
 DLT_EDGES_THRSLD = .1
+
+# def ChronometerStart(msg='Start... '):
+#     start_time = time.time()
+#     sys.stdout.write(msg); sys.stdout.flush()
+#     return start_time
+#
+# def ChronometerStop(start_time, method='ms', linebreak='\n'):
+#     elapsed_time_secs = time.time() - start_time
+#     if method == 'ms':
+#         msg = 'Execution time: '+repr(round(elapsed_time_secs*1000))+' ms.'+linebreak
+#     if method == 's':
+#         msg = 'Execution time: '+repr(round(elapsed_time_secs))+' s.'+linebreak
+#     sys.stdout.write(msg); sys.stdout.flush()
+
 # ---------- Metric -------------------------------------------
 
 def DICE(seg_1,seg_2):
