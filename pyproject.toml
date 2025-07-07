@@ -2,7 +2,7 @@
 name = "gliomasegmentation-tda"
 version = "0.1.0"
 description = "Train-Free Segmentation in MRI with Cubical Persistent Homology"
-authors = ["Anton François <anton.francois134@gmail.com>", "Raphaël Tinarrage <raphael.tinarrage@ist.ac.at>"]
+authors = ["Anton François <anton.francois@ens-paris-saclay.fr>", "Raphaël Tinarrage <raphael.tinarrage@ist.ac.at>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
