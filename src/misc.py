@@ -3,9 +3,9 @@ import os,sys
 import numpy as np
 import scipy.ndimage as scipynd
 from matplotlib.colors import ListedColormap
+import matplotlib.patches as mpatches
 from nibabel import Nifti1Image
 import dog
-
 ROOT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
 # DLT_EDGES_THRSLD = .0625
@@ -127,6 +127,77 @@ def set_ticks_off(ax):
     except AttributeError:
         for a in ax.ravel():
             set_ticks_off(a)
+
+
+def segCmp(gt, est, labels_gt, labels_est):
+    """
+    Compare two segmentation maps and return a color-coded overlay image.
+
+    Parameters
+    ----------
+    gt : np.ndarray
+        Ground truth segmentation (integer-labeled image).
+    est : np.ndarray
+        Estimated segmentation (integer-labeled image).
+    labels_gt : list of int
+        List of labels in the ground truth (e.g., [2, 1, 3]).
+    labels_est : list of int
+        Corresponding labels in the estimated map (e.g., [2, 1, 4] for GT labels).
+    Returns
+    -------
+    color_img : np.ndarray
+        An RGB image (H, W, 3) of type float32, with colors:
+        - Green: correct label
+        - Red: GT present, Est missing :  Missed detection (FN)
+        - Yellow: Est present, GT missing : False positive (FP)
+        - Blue: Est present but wrong label : Mislabeling (wrong class match)
+
+    Examples:
+    -------------
+    cmp_seg,legend_patches = segCmp(gt_slice, est_slice, LABEL_GT, LABEL_EST)
+    ax.imshow(cmp_seg.transpose((1,0,2)), origin='lower')
+    ax.legend(handles=legend_patches, loc='lower right', frameon=True)
+    ax.set_title(f"GT vs Prediction")
+    """
+    gt = np.asarray(gt)
+    est = np.asarray(est)
+    H, W = gt.shape
+    color_img = np.zeros((H, W, 3), dtype=np.float32)
+
+    green = [0, 1, 0]
+    red = [1, 0, 0]
+    yellow = [1, 1, 0]
+    blue = [0, 0, 1]
+    gt_null = gt == 0
+    gt_smth = gt > 0
+    est_null = est == 0
+    est_smth = est > 0
+    for l_gt, l_est in zip(labels_gt, labels_est):
+        gt_mask = gt == l_gt
+        est_mask = est == l_est
+
+        match = gt_mask & est_mask         # Green
+        wrong = est_mask & ~gt_mask & gt_smth  # Blue (override green)
+
+        color_img[match] += green       # green
+        color_img[wrong] += blue        # blue takes priority
+
+    false = gt_null & est_smth        # Yellow
+    color_img[false] = yellow       # yellow
+    miss = gt_smth & est_null         # Red
+    color_img[miss] = red        # red
+
+    color_img = np.clip(color_img, 0, 1)
+
+    # Define legend labels and corresponding colors
+    legend_patches = [
+        mpatches.Patch(color=green, label='Correct (match)'),
+        mpatches.Patch(color=red, label='Missed (in GT only)'),
+        mpatches.Patch(color=yellow, label='False positive (in Est only)'),
+        mpatches.Patch(color=blue, label='Wrong label (mismatch)')
+    ]
+    return color_img, legend_patches
+
 
 def imCmp(I1, I2, method='supperpose'):
     M, N = I1.shape
