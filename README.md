@@ -1,8 +1,10 @@
-# gliomaSegmentation_TDA
+# Train-Free Segmentation in MRI with Cubical Persistent Homology
 
-Segmentation of Glioblastoma MRI using TDA
+Anton François & Raphaël Tinarrage
 
-One can find a demonstration and tutorial the library in the jupyter notebook `tutorial_full_segmentation.ipynb`.
-For more explanation on methods and results please refer to the Chapter 4 of my PhD dissertation
-that can be found here : https://helios2.mi.parisdescartes.fr/~afrancoi/AntonFRANCOIS_files/Manuscrit_Anton.pdf (not
-reviewed)
+See the preprint at https://arxiv.org/abs/2401.01160
+
+Tutorials for using the library can be found in the following Jupyter notebooks:
+- Glioblastoma segmentation on BraTS 2025: [tutorial_brain_segmentation.ipynb](notebooks/tutorial_brain_segmentation.ipynb)
+- Myocardium segmentation on ACDC: [tutorial_cardiac_segmentation.ipynb](notebooks/tutorial_cardiac_segmentation.ipynb)
+- Cortical plate segmentation on SAT: [tutorial_fetal_segmentation.ipynb](notebooks/tutorial_fetal_segmentation.ipynb)

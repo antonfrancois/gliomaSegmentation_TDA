@@ -50,8 +50,10 @@ from morphology import get_component, get_largest_component
 from utils import (
     ChronometerStart,
     ChronometerStop,
+    DLT_KW_IMAGE,
     DLT_KW_SEG,
     get_dice,
+    get_multiple_dice,
 )
 from parseBrats import ROOT_DIRECTORY
 
@@ -103,7 +105,7 @@ def preprocess_brain(
     return img_flair, img_t1ce
 
 
-def suggest_t(img, ticks=100, threshold=1, plot=False, ax=None):
+def suggest_t(img, ticks=100, threshold=1, plot=False, ax=None, save=False):
     """
     Suggests an optimal threshold value `t` for segmenting the input image `img` by analyzing the change in the number
     of active voxels as the threshold varies. More specifically, one builds the curve of the number of active voxels as
@@ -134,7 +136,7 @@ def suggest_t(img, ticks=100, threshold=1, plot=False, ax=None):
     if plot or not (ax is None):
         c1, c2, c3 = "forestgreen", "firebrick", "goldenrod"
         if ax is None:
-            fig, ax = plt.subplots(1, 1, figsize=(6, 6), constrained_layout=True)
+            fig, ax = plt.subplots(1, 1, figsize=(5, 5))
         f = ax.plot(vals, active_vxls, "o-", label="f", c=c1)
         ax.plot([best_t, best_t], [0, active_vxls.max()], "--", c=c2)
         ax.text(best_t + 0.01, 0.8 * active_vxls.max(), f"t = {best_t:.3f}", c=c2)
@@ -150,6 +152,9 @@ def suggest_t(img, ticks=100, threshold=1, plot=False, ax=None):
         ax.yaxis.get_label().set_color(f[0].get_color())
         axt.yaxis.get_label().set_color(df[0].get_color())
         ax.legend(lns, labs, loc="upper right")
+        plt.tight_layout()
+        if save:
+            plt.savefig("results/brain_suggest_t.png", dpi=300)
         if plot:
             plt.show()
     return best_t
@@ -163,6 +168,7 @@ def segment_whole_object(
     iterations_binary_closing=0,
     verbose=True,
     plot=True,
+    save=False,
 ):
     """Segments the whole tumor from a FLAIR image. The method 'suggest_t', 'gt' or 'gt_hull'."""
     # Segment via automatic threshold detection.
@@ -174,6 +180,7 @@ def segment_whole_object(
             img=img,
             threshold=threshold,
             plot=plot,
+            save=save,
         )
         if verbose:
             ChronometerStop(start_time, method="s")
@@ -213,7 +220,9 @@ def segment_whole_object(
     return seg_whole
 
 
-def segment_geometric_object(img, seg_whole, max_bars=5, verbose=True, plot=True):
+def segment_geometric_object(
+    img, seg_whole, max_bars=5, verbose=True, plot=True, save=False
+):
     # Compute persistent homology H2.
     if verbose:
         start_time = ChronometerStart("Compute diagram... ")
@@ -241,7 +250,7 @@ def segment_geometric_object(img, seg_whole, max_bars=5, verbose=True, plot=True
                 np.array([bar[1:3] for bar in barcode if bar[0] == 3 - 1]),
             ]
         )
-        plt.title("Persistence diagram of image segmented", fontsize=10)
+        plt.title("Persistence diagram of masked image", fontsize=10)
     # Compute width of the holes of H2-features
     if verbose:
         start_time = ChronometerStart("Identify the largest hole... ")
@@ -276,6 +285,10 @@ def segment_geometric_object(img, seg_whole, max_bars=5, verbose=True, plot=True
     if plot:
         patch = plt.Circle((bar[0], bar[1]), 0.01, fill=False)
         ax.add_patch(patch)
+        plt.tight_layout()
+    if save:
+        plt.savefig("results/brain_persistence_module2.pdf")
+    if plot:
         plt.show()
     return seg_geom
 
@@ -284,7 +297,7 @@ def segment_other_components(seg_whole, seg_geom, radius_dilation=0, verbose=Tru
     # 3rd step: - Classify components
     # 1 - RED, TC  -> NECROSE INACTIVE, TUMORUS CORE
     # 2 - BLUE, ED -> INFILTRATION, OEDEME
-    # 4 - ORANGE, ET -> NECROSE ACTIVE, ENHANCING TUMOR
+    # 3 - ORANGE, ET -> NECROSE ACTIVE, ENHANCING TUMOR
     # Compute connected components of the complement.
     if verbose:
         start_time = ChronometerStart("Get connected components... ")
@@ -297,7 +310,7 @@ def segment_other_components(seg_whole, seg_geom, radius_dilation=0, verbose=Tru
     components_len = [np.sum(component) for component in components]
     imax_comp = np.argmax(components_len)
     # Classify components: TC or WT.
-    seg_final = seg_geom.copy() * 4  # define seg_final
+    seg_final = seg_geom.copy() * 3  # define seg_final
     seg_final[(components[imax_comp] * seg_whole) > 0] = 2  # add ED
     components.pop(imax_comp)  # remove ED (background) from components
     for component in components:
@@ -311,7 +324,7 @@ def segment_other_components(seg_whole, seg_geom, radius_dilation=0, verbose=Tru
             * seg_whole
         )
         seg_ET_erode = (
-            skimage.morphology.erosion((seg_final == 4) * 1, footprint=footprint)
+            skimage.morphology.erosion((seg_final == 3) * 1, footprint=footprint)
             * seg_whole
         )
         # Create final segmentations from ED.
@@ -319,7 +332,7 @@ def segment_other_components(seg_whole, seg_geom, radius_dilation=0, verbose=Tru
         # Add TC.
         seg_final[seg_TC_dilate > 0] = 1
         # Add ET.
-        seg_final[seg_ET_erode > 0] = 4
+        seg_final[seg_ET_erode > 0] = 3
     return seg_final
 
 
@@ -336,6 +349,7 @@ def segment_brain(
     max_bars=2,
     verbose=False,
     plot=False,
+    save=False,
 ):
     # Preprocess image.
     img_flair, img_t1ce = preprocess_brain(
@@ -350,14 +364,16 @@ def segment_brain(
     )
     # Module 1: Segmentation whole object.
     seg_whole = segment_whole_object(
-        img=img_flair,
-        threshold=whole_threshold,
-        verbose=verbose,
-        plot=plot,
+        img=img_flair, threshold=whole_threshold, verbose=verbose, plot=plot, save=save
     )
     # Module 2: Segmentation geometric object.
     seg_geom = segment_geometric_object(
-        img=img_t1ce, seg_whole=seg_whole, max_bars=max_bars, verbose=verbose, plot=plot
+        img=img_t1ce,
+        seg_whole=seg_whole,
+        max_bars=max_bars,
+        verbose=verbose,
+        plot=plot,
+        save=save,
     )
     # Module 3: Deduce final segmentation.
     seg_final = segment_other_components(
@@ -374,7 +390,7 @@ Myocardium segmentations
 ---------------------------------------------------------------------------------------------------------------------"""
 
 
-def parseACDC(n_image, end="ED"):
+def parseACDC(n_image, end="ED", return_filename=False):
     """Open an image from the STA dataset. `n_image` must be between 1 and 150 included. (training up to 100, then
     testing ). The parameter `end` can be 'ED or 'ES' (end diastole, end systole)."""
     # Open image and segmentation
@@ -404,12 +420,25 @@ def parseACDC(n_image, end="ED"):
     img /= np.max(img)
     filename = filename[0:-7] + "_gt.nii.gz"
     seg_gt = nib_load(filename).get_fdata()
-    return img, seg_gt
+    if return_filename:
+        return img, seg_gt, filename
+    else:
+        return img, seg_gt
 
 
 def compute_sphericity(CC, verbose=True):
     """CC can be of dimension 2 or 3."""
     if CC.ndim == 2:
+        # Return 0 if it touches the boundary
+        if (
+            np.sum(CC[0, :]) > 0
+            or np.sum(CC[-1, :]) > 0
+            or np.sum(CC[:, 0]) > 0
+            or np.sum(CC[:, -1])
+        ):
+            if verbose:
+                print("Sphericity Dice: 0 (touches boundary)")
+            return 0
         # Get center and radius
         center = scipy.ndimage.center_of_mass(CC)
         center = (int(center[0]), int(center[1]))
@@ -479,7 +508,7 @@ def suggest_t_pos(
             print("Error! Dim", CC.ndim)
 
         if pixel_value == 0:
-            print(t, "Warning! The voxel pos is not active at time t :(")
+            print(t, "Warning! The voxel pos is not active at time t.")
             CC_width[t] = 0
         else:
             labels = skimage.measure.label(imt, background=0)
@@ -490,7 +519,7 @@ def suggest_t_pos(
             CC = (labels == labeltumor) * 1
             CC_width[t] = np.sum(CC)
             if labeltumor == 0:
-                print(i_bar, "Warning! The label is background :(")
+                print("Warning! The label is background.")
 
     # Build suggestion curve
     S = np.array([CC_width[t] for t in T])
@@ -536,22 +565,32 @@ def suggest_t_pos(
     return CC
 
 
-def preprocess_cardiac(img, sigma=1, radius_dilation=0):
-    if sigma > 0:
-        img = scipy.ndimage.gaussian_filter(img, sigma=sigma)
-    if radius_dilation > 0:
-        img = skimage.morphology.dilation(
-            img,
-            footprint=skimage.morphology.ball(radius_dilation),
-            out=None,
-        )
+def preprocess_cardiac(img, sigma=1, radius_dilation=0, method="3D"):
+    if method == "2D":
+        for z in range(img.shape[2]):
+            if sigma > 0:
+                img[:, :, z] = scipy.ndimage.gaussian_filter(img[:, :, z], sigma=sigma)
+            if radius_dilation > 0:
+                img[:, :, z] = skimage.morphology.dilation(
+                    img[:, :, z],
+                    footprint=skimage.morphology.disk(radius_dilation),
+                )
+    if method == "3D":
+        if sigma > 0:
+            img = scipy.ndimage.gaussian_filter(img, sigma=sigma)
+        if radius_dilation > 0:
+            img = skimage.morphology.dilation(
+                img,
+                footprint=skimage.morphology.ball(radius_dilation),
+            )
     return img
 
 
 def segment_whole_object_cardiac(
     img,
     seg_gt,
-    H0_features_max=10,
+    H0_features_max_LV=10,
+    H0_features_max_RV=20,
     dt_threshold=1,
     thresh_small_LV=1000,
     ratio_small_RV=0.25,
@@ -563,54 +602,54 @@ def segment_whole_object_cardiac(
     plot=False,
     save=False,
 ):
-    # Compute PH0
-    if verbose:
-        start_time = ChronometerStart("Compute diagram... ")
-    barcode = cripser.computePH(1 - img, maxdim=0)  # Compute diagram
+    # (1) Compute PH0
+    barcode = cripser.computePH(1 - img, maxdim=0)
     H0 = [list(bar[1::]) for bar in barcode if bar[0] == 0]
-    H0 = [
-        bar for _, bar in sorted(zip([bar[1] - bar[0] for bar in H0], H0))[::-1]
-    ]  # Sort list H2 by persistence
-    H0[0][1] = 1  # correction infinite bar (1 instead of inf)
-    if verbose:
-        ChronometerStop(start_time, method="s")
+    # Sort list H0 by persistence
+    H0 = [bar for _, bar in sorted(zip([bar[1] - bar[0] for bar in H0], H0))[::-1]]
+    # Correction infinite bar (1 instead of inf)
+    H0[0][1] = 1
 
-    # Compute sphericity
+    # (2) Compute sphericity
     H0_sphericity = dict()
     H0_CC = dict()
-    if verbose:
-        start_time = ChronometerStart("Compute sphericity... ")
-    for i in range(H0_features_max):
+    for i in range(H0_features_max_RV):
         t_birth, pos = H0[i][0], [int(H0[i][2 + k]) for k in range(img.ndim)]
+        # Segment via suggest_t_pos
         CC = suggest_t_pos(
             img, pos, t_birth, dt_threshold=dt_threshold, direction="left"
-        )  # Segment via suggest_t_pos
+        )
         H0_CC[i] = CC
-        H0_sphericity[i] = compute_sphericity(CC, verbose=False)  # Compute sphericity
-    if verbose:
-        ChronometerStop(start_time, method="s")
-    if verbose:
-        print("H0_sphericity", H0_sphericity)
+        # Compute sphericity
+        if i < H0_features_max_LV:
+            H0_sphericity[i] = compute_sphericity(CC, verbose=False)
 
-    # Segment LV
+    if verbose:
+        print("H0 sphericity:", H0_sphericity)
+
+    # (3) Segment LV
     H0_sphericity_thresh = {
         i: H0_sphericity[i] * (np.sum(H0_CC[i]) >= thresh_small_LV)
         for i in H0_sphericity
     }
-    # Discard small components
+    # Identify LV as the most spherical
     best_i_LV = max(H0_sphericity_thresh, key=lambda k: H0_sphericity_thresh[k])
     seg_LV = H0_CC[best_i_LV]
+    # Do dilation (preprocess)
     if radius_dilation > 0:
-        seg_LV = skimage.morphology.binary_erosion(
-            seg_LV, footprint=skimage.morphology.ball(radius_dilation)
-        )
+        if img.ndim == 2:
+            footprint = skimage.morphology.disk(radius_dilation)
+        elif img.ndim == 3:
+            footprint = skimage.morphology.ball(radius_dilation)
+        seg_LV = skimage.morphology.binary_erosion(seg_LV, footprint=footprint)
     if verbose:
-        print("Most spherical CC is index", best_i_LV, "- width", np.sum(seg_LV))
+        print("Dice LV:", get_dice(seg_LV, (seg_gt == 3) * 1))
 
-    # Segment RV
+    # (4) Segment RV
+    # Compute distances to LV
     if np.isinf(maximal_distance):
         top_features_loc = [
-            np.mean(np.where(H0_CC[i]), axis=1) for i in range(H0_features_max)
+            np.mean(np.where(H0_CC[i]), axis=1) for i in range(H0_features_max_RV)
         ]
         distances = np.linalg.norm(
             np.array(top_features_loc) - top_features_loc[best_i_LV], axis=1
@@ -625,31 +664,27 @@ def segment_whole_object_cardiac(
             seg_LV_dilations[dilation] = skimage.morphology.binary_dilation(
                 seg_LV_dilations[dilation - 1], footprint=footprint
             )
-        distances = [np.inf for i in range(H0_features_max)]
-        for i in range(H0_features_max):
+        distances = [np.inf for _ in range(H0_features_max_RV)]
+        for i in range(H0_features_max_RV):
             for dilation in range(0, maximal_distance + 1):
                 if np.max(H0_CC[i][np.where(seg_LV_dilations[dilation] > 0)]) > 0:
                     distances[i] = dilation
                     break
-    if verbose:
-        print("distances before discarding:", distances)
     # Discard small or big components
-    for i in range(H0_features_max):
+    for i in range(H0_features_max_RV):
         if np.sum(H0_CC[i]) < ratio_small_RV * np.sum(seg_LV) or np.sum(
             H0_CC[i]
         ) > ratio_big_RV * np.sum(seg_LV):
             distances[i] = np.inf
-    if verbose:
-        print("distances after discarding:", distances)
-
-    best_i_RV = np.argsort(distances)[
-        1
-    ]  # second smallest distance (the first one is 0)
+    # Identify RV via the second-smallest distance (the first one is 0)
+    best_i_RV = np.argsort(distances)[1]
     seg_RV = H0_CC[best_i_RV]
+    # If they intersect, remove the intersection from LV
     if min(seg_LV[seg_RV > 0]) > 0:
         seg_LV[seg_RV > 0] = 0
         if verbose:
             print("Warning! LV and RV intersect.")
+    # Undo dilation (preprocess)
     if not np.isinf(maximal_distance):
         if radius_dilation > 0:
             if img.ndim == 2:
@@ -660,12 +695,14 @@ def segment_whole_object_cardiac(
                 seg_RV = skimage.morphology.binary_erosion(
                     seg_RV, footprint=skimage.morphology.ball(radius_dilation)
                 )
-    if verbose:
-        print("Closest CC is index", best_i_RV, "- width", np.sum(seg_RV))
     if np.min(distances) == np.inf:
         print("Error! Min distance is inf.")
+    if verbose:
+        dice_LV = get_dice(seg_LV, (seg_gt == 3) * 1)
+        dice_RV = get_dice(seg_RV, (seg_gt == 1) * 1)
+        print("Dice LV/RV:", dice_LV, dice_RV)
 
-    # Dilate LV up to touch RV
+    # (5) Segment whole object: dilate LV up to touch RV
     if np.sum(seg_LV) > 0 and np.sum(seg_RV) > 0:
         if img.ndim == 2:
             pairwise_distances = scipy.spatial.distance.cdist(
@@ -688,23 +725,15 @@ def segment_whole_object_cardiac(
     seg_whole = (
         scipy.ndimage.binary_dilation(seg_LV, iterations=iterations) + seg_RV > 0
     ) * 1
-    if verbose:
-        print("Number of iterations =", iterations)
-
     # Fill CC with holes
-    if verbose:
-        start_time = ChronometerStart("Fill the holes... ")
     seg_whole = scipy.ndimage.binary_fill_holes(seg_whole)
-    if verbose:
-        ChronometerStop(start_time, method="s")
 
     # Plot diagram and top features
     if plot:
         fig = plt.figure(figsize=(6, 6 / 2))
         fig.subplots_adjust(wspace=0.05, hspace=0)
-
         # Plot diagram
-        eps = 0.01  # to print text next to the points
+        eps = 0.01
         ax = fig.add_subplot(1, 2, 1)
         persim.plot_diagrams(
             [
@@ -712,7 +741,7 @@ def segment_whole_object_cardiac(
                 for i in range(1)
             ]
         )
-        plot_features = [(H0[i][0], H0[i][1]) for i in range(H0_features_max)]
+        plot_features = [(H0[i][0], H0[i][1]) for i in range(H0_features_max_RV)]
         for i, (x, y) in enumerate(plot_features):
             ax.scatter(x, y, c="C" + repr(i + 1))
             ax.text(x + eps, y + eps, i, color="black")
@@ -722,77 +751,85 @@ def segment_whole_object_cardiac(
         ax = fig.add_subplot(1, 2, 2)
         ax.axis("off")
         if img.ndim == 2:
-            ax.imshow(img, cmap="gray", alpha=0.9, origin="upper")
+            ax.imshow(img, **DLT_KW_IMAGE, alpha=0.9)
         elif img.ndim == 3:
-            ax.imshow(
-                img[:, :, 4], cmap="gray", alpha=0.9, origin="upper"
-            )  # 4 is an arbitrary index
-        for i in range(H0_features_max):
+            ax.imshow(img[:, :, 4], **DLT_KW_IMAGE)  # arbitrary index
+        for i in range(H0_features_max_RV):
             CC = H0_CC[i]
             if img.ndim == 3:
-                CC = CC[:, :, 4]  # 4 is an arbitrary index
+                CC = CC[:, :, 4]  # arbitrary index
             if np.sum(CC) > 0:
                 ax.imshow(
                     np.ma.masked_where(CC == 0, CC),
                     alpha=0.9,
                     cmap=ListedColormap(["C" + repr(i + 1)]),
-                    origin="upper",
+                    origin="lower",
                 )
                 center = scipy.ndimage.center_of_mass(CC)
                 ax.text(int(center[1]), int(center[0]), i, color="white")
-
+        plt.tight_layout()
         if save:
-            plt.savefig("results/module_1_local.pdf", format="pdf", bbox_inches="tight")
-            plt.show()
+            plt.savefig(
+                "results/cardiac_module_1_local.pdf", format="pdf", bbox_inches="tight"
+            )
+        plt.show()
 
     # Plot segmentation
     if plot:
-        fig = plt.figure(figsize=(10, 10 / 3))
-        fig.subplots_adjust(wspace=0.05, hspace=0)
-
         if img.ndim == 2:
-            (
-                img_slice,
-                seg_medecin_slice,
-                seg_LV_slice,
-                seg_RV_slice,
-                seg_union_slice,
-            ) = (img, seg_gt, seg_LV, seg_RV, seg_whole)
+            slices_to_plot = [(img, seg_gt, seg_LV, seg_RV, seg_whole)]
         elif img.ndim == 3:
-            (
-                img_slice,
-                seg_medecin_slice,
-                seg_LV_slice,
-                seg_RV_slice,
+            slices_to_plot = [
+                (
+                    img[:, :, z],
+                    seg_gt[:, :, z],
+                    seg_LV[:, :, z],
+                    seg_RV[:, :, z],
+                    seg_whole[:, :, z],
+                )
+                for z in range(np.shape(img)[2])
+            ]
+        for (
+            img_slice,
+            seg_medecin_slice,
+            seg_LV_slice,
+            seg_RV_slice,
+            seg_union_slice,
+        ) in slices_to_plot:
+            fig = plt.figure(figsize=(9, 9 / 3))
+            fig.subplots_adjust(wspace=0.05, hspace=0)
+
+            ax = fig.add_subplot(1, 3, 1)
+            ax.axis("off")
+            ax.imshow(img_slice, **DLT_KW_IMAGE, alpha=0.9)
+            ax.imshow(3 * seg_LV_slice + 1 * seg_RV_slice, **DLT_KW_SEG)
+            ax.set_title("Segmentation of LV and RV")
+
+            ax = fig.add_subplot(1, 3, 2)
+            ax.axis("off")
+            ax.imshow(img_slice, **DLT_KW_IMAGE, alpha=0.9)
+            ax.imshow(
                 seg_union_slice,
-            ) = (
-                img[:, :, 4],
-                seg_gt[:, :, 4],
-                seg_LV[:, :, 4],
-                seg_RV[:, :, 4],
-                seg_whole[:, :, 4],
-            )  # 4 is an arbitrary index
+                cmap=ListedColormap([[0, 0, 0, 0], "tab:pink"]),
+                origin="lower",
+            )
+            ax.set_title("Segmentation of whole object")
 
-        ax = fig.add_subplot(1, 3, 1)
-        ax.axis("off")
-        ax.imshow(img_slice, cmap="gray", alpha=0.9, origin="upper")
-        ax.imshow(seg_LV_slice + 3 * seg_RV_slice, **DLT_KW_SEG)
-        ax.set_title("Segmentation of LV and RV")
+            ax = fig.add_subplot(1, 3, 3)
+            ax.axis("off")
+            ax.imshow(img_slice, **DLT_KW_IMAGE, alpha=0.9)
+            ax.imshow(seg_medecin_slice, **DLT_KW_SEG)
+            ax.set_title("Ground-truth segmentation")
 
-        ax = fig.add_subplot(1, 3, 2)
-        ax.axis("off")
-        ax.imshow(img_slice, cmap="gray", alpha=0.9, origin="upper")
-        ax.imshow(seg_union_slice, **DLT_KW_SEG)
-        ax.set_title("Segmentation union")
-
-        ax = fig.add_subplot(1, 3, 3)
-        ax.axis("off")
-        ax.imshow(img_slice, cmap="gray", alpha=0.9, origin="upper")
-        ax.imshow(seg_medecin_slice, **DLT_KW_SEG)
-        ax.set_title("Segmentation medecin")
-        plt.show()
-
-    return seg_whole
+            plt.tight_layout()
+            if save:
+                plt.savefig(
+                    "results/cardiac_whole_segmentation.pdf",
+                    format="pdf",
+                    bbox_inches="tight",
+                )
+            plt.show()
+    return seg_whole, seg_LV, seg_RV
 
 
 def segment_geometric_object_cardiac(img, seg_whole, verbose=False, plot=False):
@@ -803,7 +840,12 @@ def segment_geometric_object_cardiac(img, seg_whole, verbose=False, plot=False):
 
     # Artificially add boundaries (to create a sphere from the cylinder)
     if img.ndim == 3:
-        img_union[:, :, 0], img_union[:, :, -1] = 0, 0
+        #        img_union[:, :, 0], img_union[:, :, -1] = 0, 0
+        img_union_extended = np.zeros(
+            (np.shape(img)[0], np.shape(img)[1], np.shape(img)[2] + 2)
+        )
+        img_union_extended[:, :, 1:-1] = img_union
+        img_union = img_union_extended
 
     # Compute barcode
     if verbose:
@@ -830,6 +872,10 @@ def segment_geometric_object_cardiac(img, seg_whole, verbose=False, plot=False):
         elif img.ndim == 3:
             labelcycle = labels[pos[0], pos[1], pos[2]]
         seg_geom = (labels == labelcycle) * 1
+
+        # Remove artificial boundaries
+        if img.ndim == 3:
+            seg_geom = seg_geom[:, :, 1:-1]
 
         # Plot diagram and seg
         if plot:
@@ -868,7 +914,7 @@ def segment_geometric_object_cardiac(img, seg_whole, verbose=False, plot=False):
 
 
 def segment_other_components_cardiac(seg_whole, seg_geom, verbose=True):
-    "1: LV, 2: Myocardium, 3: RV."
+    "1: RV, 2: Myocardium, 3: LV."
     if verbose:
         start_time = ChronometerStart("Get connected components... ")
     seg_complement = 1 - seg_geom
@@ -881,21 +927,24 @@ def segment_other_components_cardiac(seg_whole, seg_geom, verbose=True):
     imax_comp = np.argmax(components_len)
     # Classify components.
     seg_final = seg_geom.copy() * 2  # initialize with myocardium
-    seg_final[(components[imax_comp] * seg_whole) > 0] = 1  # add LV
+    seg_final[(components[imax_comp] * seg_whole) > 0] = 1  # add RV
     components.pop(imax_comp)  # remove background
     for component in components:
-        seg_final[component > 0] = 3  # add RV
+        seg_final[component > 0] = 3  # add LV
     return seg_final
 
 
 def segment_cardiac(
     img,
     seg_gt,
-    method="2D",
+    method_whole="2D",
+    method_geom="2D",
+    method_other="2D",
     sigma=1,
     radius_dilation=0,
     dt_threshold=1.0,
-    H0_features_max=10,
+    H0_features_max_LV=10,
+    H0_features_max_RV=20,
     thresh_small_LV=200,
     ratio_small_RV=0.1,
     ratio_big_RV=5,
@@ -905,17 +954,23 @@ def segment_cardiac(
     plot=False,
 ):
     """The parameter `method` can be '2D' or '3D'."""
-    # Preprocess.
-    img = preprocess_cardiac(img=img, sigma=sigma, radius_dilation=radius_dilation)
-    # Segment 2D (slice by slice)
-    if method == "2D":
-        seg_final = np.zeros(np.shape(img))
-        for z_pos in range(1, np.shape(img)[2]):
+    # (1) Preprocess.
+    img = preprocess_cardiac(
+        img=img, sigma=sigma, radius_dilation=radius_dilation, method="3D"
+    )
+
+    # (2) Segment whole object
+    if method_whole == "2D":
+        seg_whole = np.zeros(np.shape(img))
+        seg_LV = np.zeros(np.shape(img))
+        seg_RV = np.zeros(np.shape(img))
+        for z_pos in range(0, np.shape(img)[2]):
             img_slice, seg_gt_slice = img[:, :, z_pos], seg_gt[:, :, z_pos]
-            seg_whole_slice = segment_whole_object_cardiac(
+            seg_whole_slice, seg_LV_slice, seg_RV_slice = segment_whole_object_cardiac(
                 img=img_slice,
                 seg_gt=seg_gt_slice,
-                H0_features_max=H0_features_max,
+                H0_features_max_LV=H0_features_max_LV,
+                H0_features_max_RV=H0_features_max_RV,
                 dt_threshold=dt_threshold,
                 thresh_small_LV=thresh_small_LV,
                 ratio_small_RV=ratio_small_RV,
@@ -926,19 +981,15 @@ def segment_cardiac(
                 verbose=verbose,
                 plot=plot,
             )
-            seg_geom_slice = segment_geometric_object_cardiac(
-                img_slice, seg_whole_slice, verbose=verbose, plot=plot
-            )
-            seg_final_slice = segment_other_components_cardiac(
-                seg_whole_slice, seg_geom_slice, verbose=verbose
-            )
-            seg_final[:, :, z_pos] = seg_final_slice
-    # Segment 3D (whole CMR)
-    elif method == "3D":
-        seg_whole = segment_whole_object_cardiac(
+            seg_whole[:, :, z_pos] = seg_whole_slice
+            seg_LV[:, :, z_pos] = seg_LV_slice
+            seg_RV[:, :, z_pos] = seg_RV_slice
+    elif method_whole == "3D":
+        seg_whole, seg_LV, seg_RV = segment_whole_object_cardiac(
             img=img,
             seg_gt=seg_gt,
-            H0_features_max=H0_features_max,
+            H0_features_max_LV=H0_features_max_LV,
+            H0_features_max_RV=H0_features_max_RV,
             dt_threshold=dt_threshold,
             thresh_small_LV=thresh_small_LV,
             ratio_small_RV=ratio_small_RV,
@@ -949,12 +1000,66 @@ def segment_cardiac(
             verbose=verbose,
             plot=plot,
         )
+
+    # (3) Segment geometric object
+    if method_geom == "2D":
+        seg_geom = np.zeros(np.shape(img))
+        for z_pos in range(0, np.shape(img)[2]):
+            img_slice, seg_whole_slice = img[:, :, z_pos], seg_whole[:, :, z_pos]
+            seg_geom_slice = segment_geometric_object_cardiac(
+                img_slice, seg_whole_slice, verbose=verbose, plot=plot
+            )
+            seg_geom[:, :, z_pos] = seg_geom_slice
+    elif method_geom == "3D":
         seg_geom = segment_geometric_object_cardiac(
             img, seg_whole, verbose=verbose, plot=plot
         )
+
+    # (4) Deduce final segmentation
+    if method_other == "2D":
+        seg_final = np.zeros(np.shape(img))
+        for z_pos in range(0, np.shape(img)[2]):
+            seg_whole_slice, seg_geom_slice = (
+                seg_whole[:, :, z_pos],
+                seg_geom[:, :, z_pos],
+            )
+            seg_final_slice = segment_other_components_cardiac(
+                seg_whole_slice, seg_geom_slice, verbose=verbose
+            )
+            seg_final[:, :, z_pos] = seg_final_slice
+    elif method_other == "3D":
         seg_final = segment_other_components_cardiac(
             seg_whole, seg_geom, verbose=verbose
         )
+    elif method_other == "skip":
+        #  Directly combine modules 1 and 2 without module 3
+        seg_final = seg_geom.copy() * 2  # initialize with myocardium
+        seg_final[seg_LV > 0] = 3  # add LV
+        seg_final[seg_RV > 0] = 1  # add RV
+    if verbose:
+        get_multiple_dice(
+            seg_final[:, :, 1:], seg_gt[:, :, 1:], labels=(1, 2, 3), verbose=True
+        )
+
+    #    if plot:
+    if False:
+        # Plot all segmentations in slices
+        for z in range(img.shape[2]):
+            fig, axs = plt.subplots(1, 4, figsize=(16, 4))
+            axs[0].imshow(img[:, :, z], cmap="gray", origin="upper")
+            axs[0].set_title("Image")
+            axs[0].axis("off")
+            axs[1].imshow(seg_gt[:, :, z], **DLT_KW_SEG)
+            axs[1].set_title("Ground Truth")
+            axs[1].axis("off")
+            axs[2].imshow(seg_final[:, :, z], **DLT_KW_SEG)
+            axs[2].set_title("Final Segmentation")
+            axs[2].axis("off")
+            axs[3].imshow(seg_whole[:, :, z], **DLT_KW_SEG)
+            axs[3].set_title("Whole Object")
+            axs[3].axis("off")
+            plt.tight_layout()
+            plt.show()
     return seg_final
 
 
@@ -1054,14 +1159,12 @@ def segment_boundary_slices(
             labels = skimage.measure.label((img_slice <= t) * 1, background=0)
             CC = (labels == labels[pos[0], pos[1]]) * 1
 
-            # Compute width hole
+            # Compute width hole (without the boundary)
             labels = skimage.measure.label(1 - CC, background=0)
             components = [(labels == i) * 1 for i in range(1, np.max(labels) + 1)]
             components_len = [np.sum(component) for component in components]
-            width_hole_interior = np.size(img_slice) - max(components_len) - np.sum(CC)
-            # width of the hole, without the boundary
-            width_hole = np.size(img_slice) - max(components_len)
-            # width of the hole, with the boundary
+            max_components_len = max(components_len) if len(components_len) > 0 else 0
+            width_hole_interior = np.size(img_slice) - max_components_len - np.sum(CC)
 
             # Discard (1): CC must not touch the boundary
             CC_filled = scipy.ndimage.binary_fill_holes(CC).astype(int)

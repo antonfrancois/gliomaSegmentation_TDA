@@ -32,8 +32,14 @@ Time:
     ChronometerStart
     ChronometerStop
     ChronometerTick
-    format_time
-    time_it
+
+Grid search:
+    find_resume_index
+    load_previous_partial
+    save_partial
+    aggregate_and_update_summary
+    compute_remaining_work
+
 
 --------------------------------------------------------------------------------------------------------------------
 """
@@ -47,6 +53,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 import matplotlib.patches as mpatches
+import os
+import glob
+import pandas as pd
 
 # Local imports.
 from morphology import argmax_image
@@ -55,15 +64,9 @@ from morphology import argmax_image
 Global variables
 ---------------------------------------------------------------------------------------------------------------------"""
 
-CMAP_SEGS = ListedColormap(
-    [
-        [0, 0, 0, 0],
-        "#08B2E3",  # Process Cyan
-        "#F6AE2D",  # Hunyardi Yellow
-        "#C65CC0",  # French mauve
-    ]
-)
-DLT_KW_SEG = dict(alpha=1, cmap=CMAP_SEGS, interpolation="nearest")
+CMAP_SEGS = ListedColormap([[0, 0, 0, 0], "tab:red", "tab:blue", "tab:orange"])
+CMAP_COMPARISON = ListedColormap([[0, 0, 0, 0], "tab:red", "tab:orange", "tab:green"])
+DLT_KW_SEG = dict(alpha=1, cmap=CMAP_SEGS, interpolation="nearest", origin="lower")
 DLT_KW_GRIDSAMPLE = dict(padding_mode="border", align_corners=True)
 DLT_KW_IMAGE = dict(
     cmap="gray",
@@ -99,7 +102,7 @@ def get_dice(seg_1, seg_2, verbose=False):
     return dice
 
 
-def get_multiple_dice(seg_1, seg_2, labels=(1, 2, 4), verbose=False):
+def get_multiple_dice(seg_1, seg_2, labels=(1, 2, 3), verbose=False):
     dices = {
         l: get_dice((seg_1 == l) * 1, (seg_2 == l) * 1, verbose=False) for l in labels
     }
@@ -115,7 +118,7 @@ Plotting
 ---------------------------------------------------------------------------------------------------------------------"""
 
 
-def plot_superlevel_sets(image, pos=None, Times=None):
+def plot_superlevel_sets(image, pos=None, Times=None, save_path=None):
     if Times == None:
         Times = [0, 0.05, 0.3, 0.5, 1]
 
@@ -134,10 +137,12 @@ def plot_superlevel_sets(image, pos=None, Times=None):
         imt[im < t] = 1
         imt[im >= t] = 0
         ax[i].imshow(imt, origin="lower", vmin=0, vmax=1, cmap="gray")
-        ax[i].set_title("t = " + repr(Times[i]), fontsize=17.5)
+        ax[i].set_title(f"t = {1-Times[i]}", fontsize=17.5)
         ax[i].axis("off")
         ax[i].set_aspect("equal")
     fig.subplots_adjust(wspace=0.05, hspace=0)
+    if save_path is not None:
+        plt.savefig(save_path, format="pdf", bbox_inches="tight")
     plt.show()
 
 
@@ -168,50 +173,43 @@ def image_slice(I, coord, dim):
         return I[:, :, coord]
 
 
-def make_3d_flat(img_3D, slice):
-    """Take a 'brain' 3D image, take 3 slices and make a long 2D image of it."""
+def make_3d_flat(img_3D, slice, crop=20):
+    """
+    Take a 'brain' 3D image, take 3 slices and make a long 2D image of it.
+    Adapted to BraTS 2025 data (shape=(182, 218, 182)).
+    """
     D, H, W = img_3D.shape
-
-    # im0 = image_slice(img_3D,slice[0],2).T
-    # im1 = image_slice(img_3D,slice[1],1).T
-    # im2 = image_slice(img_3D,slice[2],0).T
-    # adapté pos raph v
-    im0 = image_slice(img_3D, slice[2], 2).T
-    im1 = image_slice(img_3D, slice[1], 1).T
-    im2 = image_slice(img_3D, slice[0], 0).T
-
-    crop = 20
-    # print(D-int(1.7*crop),D+H-int(2.7*crop))
-    # print(D+H-int(3.2*crop))
-    long_img = np.zeros((D, D + H + H - int(3.5 * crop)))
-    long_img[:D, : D - crop] = im0[:, crop // 2 : -crop // 2]
-    long_img[
-        (D - W) // 2 : (D - W) // 2 + W, D - int(1.7 * crop) : D + H - int(2.7 * crop)
-    ] = im1[::-1, crop // 2 : -crop // 2]
-    long_img[(D - W) // 2 : (D - W) // 2 + W, D + H - int(3 * crop) :] = im2[
-        ::-1, crop // 2 :
-    ]
-
+    im0 = image_slice(img_3D, slice[2], 2).T  # (H, D)
+    im1 = image_slice(img_3D, slice[1], 1).T  # (W, D)
+    im2 = image_slice(img_3D, slice[0], 0).T  # (W, H)
+    hc = crop // 2
+    r0 = (H - D) // 2
+    im0c = im0[r0 : r0 + D, hc:-hc]
+    im1c = im1[:, hc:-hc]
+    im2c = im2[:, hc:]
+    long_img = np.concatenate([im0c, im1c[::-1], im2c[::-1]], axis=1)
     return long_img
 
 
-def plot_segmentation(name, img, seg=None, pos=None, figsize=(15, 5)):
+def plot_segmentation(name, img, seg=None, pos=None, figsize=(8, 10 / 4)):
     if pos is None:
         pos = argmax_image(img)
-    fig = plt.figure(figsize=figsize)
+    fig = plt.figure(figsize=figsize, constrained_layout=True)
     ax = fig.add_subplot(1, 1, 1)
-    ax.imshow(make_3d_flat(img, pos), cmap="gray", alpha=0.5, origin="upper")
+    ax.imshow(make_3d_flat(img, pos), cmap="gray", origin="upper")
     if seg is None:
         seg = img * 0
     ax.imshow(make_3d_flat(seg, pos), **DLT_KW_SEG)
-    ax.text(235, 15, name, c="white", fontsize=20)
+    ax.text(175, 25, name, c="white", fontsize=20)
     plt.axis("off")
     plt.show()
 
 
-def plot_comparison_binary_segmentations(name, img, seg_binary_gt, seg_binary_est):
+def plot_comparison_binary_segmentations(
+    name, img, seg_binary_gt, seg_binary_est, figsize=(8, 2 * 10 / 4)
+):
     pos = argmax_image(img)
-    fig, ax = plt.subplots(2, 1, constrained_layout=True)
+    fig, ax = plt.subplots(2, 1, constrained_layout=True, figsize=figsize)
     ax[0].imshow(make_3d_flat(img, pos), cmap="gray")
     ax[0].text(175, 25, name, c="white", fontsize=20)
     ax[1].imshow(make_3d_flat(img, pos), cmap="gray")
@@ -234,23 +232,14 @@ def plot_comparison_binary_segmentations(name, img, seg_binary_gt, seg_binary_es
     plt.show()
 
 
-def plot_comparison_full_segmentations(name, img, seg_gt, seg_est):
+def plot_comparison_full_segmentations(
+    name, img, seg_gt, seg_est, show_ground_truth=True, save_path=None
+):
     pos = argmax_image(img)
     seg_contour_true = np.zeros(seg_gt.shape)
     seg_contour_true[seg_gt == 4] = 1
 
-    fig, ax = plt.subplots(4, 1, constrained_layout=True, figsize=(8, 10))
-    ax[0].imshow(make_3d_flat(img, pos), cmap="gray")
-    ax[0].text(175, 25, name, c="white", fontsize=20)
-
-    ax[1].imshow(make_3d_flat(img, pos), cmap="gray")
-    ax[1].imshow(make_3d_flat(seg_gt, pos), **DLT_KW_SEG)
-    ax[1].text(250, 225, "True segmentation", c="white", fontsize=20)
-
-    ax[2].imshow(make_3d_flat(img, pos), cmap="gray")
-    ax[2].imshow(make_3d_flat(seg_est, pos), **DLT_KW_SEG)
-    ax[2].text(250, 225, "our segmentation", c="white", fontsize=20)
-
+    # Define the superposition segmentation
     seg_superpose = np.zeros(seg_gt.shape)
     # Good segmentation => Green
     good_bool = np.logical_and((seg_gt == seg_est), (seg_gt + seg_est != 0))
@@ -258,42 +247,81 @@ def plot_comparison_full_segmentations(name, img, seg_gt, seg_est):
     print(
         f"Well labeled pixels {good_bool.sum()}, proportion in image {good_bool.sum()/(seg_gt > 0).sum()}"
     )
-
     # It is part of the tumour but mislabeled => Orange
     mislabeled_bool = np.logical_and((seg_gt != seg_est), (seg_gt >= 1), (seg_est >= 1))
     seg_superpose[mislabeled_bool] = 2
     print(f"mislabeled pixels: {mislabeled_bool.sum()}")
-
     # Not part of the tumour => Red
     misseg_bool = np.logical_and((seg_gt != seg_est), (seg_gt == 0))
     not_seg = np.logical_and(seg_gt > 0, seg_est == 0)
     seg_superpose[np.logical_or(misseg_bool, not_seg)] = 1
-    print(f"Baddly segmented pixels {misseg_bool.sum()}")
+    print(f"Badly segmented pixels {misseg_bool.sum()}")
 
-    ax[3].imshow(make_3d_flat(img, pos), cmap="gray")
-    ax[3].imshow(
-        make_3d_flat(seg_superpose, pos), cmap=CMAP_SEGS, interpolation="nearest"
-    )
+    if show_ground_truth:
+        fig, ax = plt.subplots(4, 1, constrained_layout=True, figsize=(8, 8 * 4 / 3))
+        ax[0].imshow(make_3d_flat(img, pos), cmap="gray")
+        ax[0].text(300, 25, name, c="white", fontsize=20)
+
+        ax[1].imshow(make_3d_flat(img, pos), cmap="gray")
+        ax[1].imshow(make_3d_flat(seg_gt, pos), cmap=CMAP_SEGS, interpolation="nearest")
+        ax[1].text(300, 25, "True segmentation", c="white", fontsize=20)
+
+        ax[2].imshow(make_3d_flat(img, pos), cmap="gray")
+        ax[2].imshow(
+            make_3d_flat(seg_est, pos), cmap=CMAP_SEGS, interpolation="nearest"
+        )
+        ax[2].text(300, 25, "Our segmentation", c="white", fontsize=20)
+
+        ax[3].imshow(make_3d_flat(img, pos), cmap="gray")
+        ax[3].imshow(
+            make_3d_flat(seg_superpose, pos),
+            cmap=CMAP_COMPARISON,
+            interpolation="nearest",
+        )
+        ax[3].text(300, 25, "Comparison", c="white", fontsize=20)
+
+    else:
+        fig, ax = plt.subplots(3, 1, constrained_layout=True, figsize=(8, 8))
+        ax[0].imshow(make_3d_flat(img, pos), cmap="gray")
+        ax[0].text(300, 25, name, c="white", fontsize=20)
+
+        ax[1].imshow(make_3d_flat(img, pos), cmap="gray")
+        ax[1].imshow(
+            make_3d_flat(seg_est, pos), cmap=CMAP_SEGS, interpolation="nearest"
+        )
+        ax[1].text(300, 25, "Our segmentation", c="white", fontsize=20)
+
+        ax[2].imshow(make_3d_flat(img, pos), cmap="gray")
+        ax[2].imshow(
+            make_3d_flat(seg_superpose, pos),
+            cmap=CMAP_COMPARISON,
+            interpolation="nearest",
+        )
+        ax[2].text(300, 25, "Comparison", c="white", fontsize=20)
 
     for a in ax:
         a.set_xticks([])
         a.set_yticks([])
+
+    if save_path is not None:
+        plt.tight_layout()
+        plt.savefig(save_path, format="pdf", bbox_inches="tight")
     plt.show()
 
 
 def plot_images_and_segmentation(
-    image_name, img_flair, img_t1ce, seg_gt, figsize=(12, 10)
+    image_name, img_flair, img_t1ce, seg_gt, figsize=(10, 10 * 2 / 3)
 ):
     pos = argmax_image(img_flair)
     fig, ax = plt.subplots(3, 1, figsize=figsize)
     ax[0].imshow(make_3d_flat(img_flair, pos), cmap="gray", vmax=1)
     ax[0].text(175, 25, image_name, c="white", fontsize=20)
-    ax[0].text(250, 225, "FLAIR", c="white", fontsize=20)
-    ax[1].imshow(make_3d_flat(img_flair, pos), cmap="gray", vmax=1)
-    ax[1].text(250, 225, "segmentation", c="white", fontsize=20)
-    ax[1].imshow(make_3d_flat(seg_gt, pos), **DLT_KW_SEG)
-    ax[2].imshow(make_3d_flat(img_t1ce, pos), cmap="gray", vmax=1)
-    ax[2].text(250, 225, "T1ce", c="white", fontsize=20)
+    ax[0].text(350, 175, "FLAIR", c="white", fontsize=20)
+    ax[1].imshow(make_3d_flat(img_t1ce, pos), cmap="gray", vmax=1)
+    ax[1].text(350, 175, "T1ce", c="white", fontsize=20)
+    ax[2].imshow(make_3d_flat(img_flair, pos), cmap="gray", vmax=1)
+    ax[2].imshow(make_3d_flat(seg_gt, pos), DLT_KW_SEG["cmap"])
+    ax[2].text(350, 175, "Segmentation", c="white", fontsize=20)
     for a in ax:
         a.set_xticks([])
         a.set_yticks([])
@@ -456,49 +484,93 @@ def ChronometerTick(start_time, i, i_total, msg):
         sys.stdout.write("\n")
 
 
-def format_time(seconds):
-    m, s = divmod(seconds, 60)
-    h, m = divmod(m, 60)
-    c = str(seconds - int(seconds))[:5] + "cents"
-    return "{:d}:{:02d}:{:02d}s and ".format(int(h), int(m), int(s)) + c
+"""---------------------------------------------------------------------------------------------------------------------
+Grid search
+---------------------------------------------------------------------------------------------------------------------"""
 
 
-def time_it(func):
-    # This function shows the execution time of
-    # the function object passed
-    def wrap_func(*args, **kwargs):
-        t1 = time()
-        result = func(*args, **kwargs)
-        t2 = time()
-        print(f"\nComputation of {func.__name__} done in ", format_time(t2 - t1), " s")
-        return result
+def find_resume_index(results_dir, filename_head, parameters):
+    prefix = results_dir + "/" + filename_head + str(parameters)
+    files = glob.glob(prefix + "_len*.csv")
+    files_len = []
+    for f in files:
+        try:
+            tail = f[len(prefix) + 4 : -4]  # skip '_len' and '.csv'
+            files_len.append(int(tail))
+        except Exception:
+            continue
+    if not files_len:
+        print("No files found for", parameters)
+        return 0, 0
+    ind = int(np.argmax(files_len))
+    i_min = files_len[ind]
+    print("Found partial file:", files[ind], "- resuming at i =", i_min)
+    return i_min, i_min
 
-    return wrap_func
+
+def load_previous_partial(results_dir, filename_head, parameters):
+    prefix = results_dir + "/" + filename_head + str(parameters)
+    files = glob.glob(prefix + "_len*.csv")
+    files_len = []
+    for f in files:
+        try:
+            tail = f[len(prefix) + 4 : -4]
+            files_len.append(int(tail))
+        except Exception:
+            continue
+    if not files_len:
+        return None
+    ind = int(np.argmax(files_len))
+    return pd.read_csv(files[ind])
 
 
-# def update_progress(progress, message=None):
-#     # update_progress() : Displays or updates a console progress bar
-#     ## Accepts a float between 0 and 1. Any int will be converted to a float.
-#     ## A value under 0 represents a 'halt'.
-#     ## A value at 1 or bigger represents 100%
-#     barLength = 10  # Modify this to change the length of the progress bar
-#     status = ""
-#     if isinstance(progress, int):
-#         progress = float(progress)
-#     if not isinstance(progress, float):
-#         progress = 0
-#         status = "error: progress var must be float\r\n"
-#     if progress < 0:
-#         progress = 0
-#         status = "Halt...\r\n"
-#     if progress >= 1:
-#         progress = 1
-#         status = "Done...\r\n"
-#     block = int(round(barLength * progress))
-#     text = "\rProgress: [{0}] {1:6.2f}% {2}".format(
-#         "#" * block + "-" * (barLength - block), progress * 100, status
-#     )
-#     if not message is None:
-#         text += f" ({message[0]} ,{message[1]:8.2f})."
-#     sys.stdout.write(text)
-#     sys.stdout.flush()
+def save_partial(results_dir, filename_head, parameters, df):
+    file_name = (
+        results_dir + "/" + filename_head + str(parameters) + f"_len{len(df)}.csv"
+    )
+    df.to_csv(file_name, index=False)
+    return file_name
+
+
+def aggregate_and_update_summary(
+    results_dir, filename_head, parameters, full_df, column_names
+):
+    summary_path = results_dir + "/" + filename_head + "grid_summary.csv"
+    means = {
+        col_name: float(full_df[col_name].mean(skipna=True))
+        for col_name in column_names[1:]
+    }
+    overall = float(np.nanmean([means[col_name] for col_name in column_names[1:]]))
+    row = {
+        "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+        "parameters": str(parameters),
+        "n_cases": int(len(full_df)),
+        **means,
+        "mean_all": overall,
+    }
+    if os.path.exists(summary_path):
+        sdf = pd.read_csv(summary_path)
+        sdf = pd.concat([sdf, pd.DataFrame([row])], ignore_index=True)
+        sdf = sdf.drop_duplicates(subset=["parameters"], keep="last")
+    else:
+        sdf = pd.DataFrame([row])
+    sdf.to_csv(summary_path, index=False)
+    # Report best so far
+    best = sdf.sort_values("mean_all", ascending=False).head(25)
+    print("\nTop 25 configs so far (by mean_all):")
+    print(
+        best[["mean_all"] + column_names[1:] + ["n_cases", "parameters"]].to_string(
+            index=False
+        )
+    )
+
+
+def compute_remaining_work(results_dir, filename_head, grid, i_list):
+    remaining_by_param = {}
+    total_remaining = 0
+    for params in grid:
+        _, len_done = find_resume_index(results_dir, filename_head, params)
+        cases_remaining = max(0, len(i_list) - min(len_done, len(i_list)))
+        remaining_by_param[str(params)] = cases_remaining
+        total_remaining += cases_remaining
+    return remaining_by_param, total_remaining

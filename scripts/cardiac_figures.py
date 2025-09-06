@@ -4,65 +4,33 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 from segmentations import parseACDC, preprocess_cardiac, segment_whole_object_cardiac
-from utils import DLT_KW_SEG, plot_superlevel_sets
+from utils import DLT_KW_IMAGE, DLT_KW_SEG, plot_superlevel_sets
 
+# Redefine color map in DLT_KW_SEG (Myo:orange, LV:red, RV:blue)
+DLT_KW_SEG["cmap"] = ListedColormap([[0, 0, 0, 0], "tab:blue", "tab:orange", "tab:red"])
 
-# %% Figure article - one coronal slice
+# %% Open and preprocess an image
 
-n_image = 2
-z_pos = 3
-img, seg_gt = parseACDC(n_image, end="ED")
+n_image = 2  # between 1 and 150 included
+modality = "ED"  # can be 'ED or 'ES' (end diastole, end systole)
+sigma = 2  # Preprocess, Gaussian blur
+radius_dilation = 0  # Preprocess, dilation parameter
+img, seg_gt = parseACDC(n_image, end=modality)
+img = preprocess_cardiac(img=img, sigma=sigma, radius_dilation=radius_dilation)
 
-fig = plt.figure(figsize=(10, 5))
-fig.subplots_adjust(wspace=0.1, hspace=0.05)
-n = 20
-ax = fig.add_subplot(1, 2, 1)
-ax.axis("off")
-ax.imshow(img[n:, n:, z_pos], cmap="gray", alpha=1, origin="upper")
-
-ax = fig.add_subplot(1, 2, 2)
-ax.axis("off")
-ax.imshow(img[n:, n:, z_pos], cmap="gray", alpha=0.6, origin="upper")
-ax.imshow(seg_gt[n:, n:, z_pos], **DLT_KW_SEG)
-
-plt.savefig("results/coronal_examples.pdf", format="pdf", bbox_inches="tight")
-plt.show()
-
-# %% Plot several coronal slices
-
-n_image = 7  # between 1 and 150 included
-
-img, seg_gt = parseACDC(n_image, "ES")
-print(np.shape(img), np.shape(seg_gt))
-
-# Plot slices - z
-z_pos = [int(i) for i in np.linspace(2, np.shape(img)[2] - 2, 4)]
-figsize = (len(z_pos) * 5, 5)
-fig = plt.figure(figsize=figsize)
-fig.subplots_adjust(wspace=0.05, hspace=0)
-for i in range(len(z_pos)):
-    ax = fig.add_subplot(1, len(z_pos), i + 1)
-    ax.axis("off")
-    ax.imshow(img[:, :, z_pos[i]], cmap="gray", alpha=0.9, origin="upper")
-    ax.imshow(seg_gt[:, :, z_pos[i]], **DLT_KW_SEG)
-ax.set_title("n_image = " + repr(n_image))
-plt.show()
+z_pos = 2
 
 # %% Plot superlevel sets of a coronal slice
 
 plot_superlevel_sets(
-    img / np.max(img), Times=[0.2, 0.175, 0.15, 0.1, 0.075, 0.05, 0.035]
+    img,
+    Times=[0.4, 0.3, 0.2, 0.1, 0.05],
+    save_path="results/cardiac_superlevelsets.pdf",
 )
 
 # %% Figure article - Whole object (Module 1) in 2D
 
-# Open image
-n_image = 2  # between 1 and 150 included
-modality = "ED"  # can be 'ED or 'ES' (end diastole, end systole)
-img, seg_gt = parseACDC(n_image, end=modality)
 # Parameters
-sigma = 1  # Preprocess, Gaussian blur
-radius_dilation = 0  # Preprocess, dilation parameter
 dt_threshold = 1.0  # Step 1, threshold for suggest_t
 H0_features_max = 10  # Step 1, number of H2 bars to consider
 thresh_small_LV = 200  # Step 1, minimal width of LV
@@ -72,28 +40,23 @@ add_to_iterations = 2  # Step 1, fill gap between LV and RV
 maximal_distance = np.inf  # segment_whole_object_cardiac, max dist between LV and RV
 
 # Segment a slice of the image
-img = preprocess_cardiac(img=img, sigma=sigma, radius_dilation=radius_dilation)
-z_pos = 3
 img_slice, seg_gt_slice = img[:, :, z_pos], seg_gt[:, :, z_pos]
 seg_union_slice = segment_whole_object_cardiac(
     img=img_slice,
     seg_gt=seg_gt_slice,
-    H0_features_max=H0_features_max,
-    dt_threshold=dt_threshold,
-    thresh_small_LV=thresh_small_LV,
-    ratio_small_RV=ratio_small_RV,
-    ratio_big_RV=ratio_big_RV,
-    radius_dilation=radius_dilation,
-    add_to_iterations=add_to_iterations,
-    maximal_distance=maximal_distance,
+    H0_features_max_LV=10,
+    H0_features_max_RV=10,
+    add_to_iterations=2,
     verbose=False,
     plot=True,
     save=True,
 )
 
+
 # %% Plot consecutive slices
 
-img, seg_gt = parseACDC(2, end="ES")
+# Reopen image (without Gaussian blur)
+img, seg_gt = parseACDC(n_image, end=modality)
 seg_myo = (seg_gt == 2) * 1
 
 # Get nonempty slices of CC (containing myo)
@@ -107,12 +70,12 @@ ax = fig.add_subplot(1, 2, 1)
 ax.axis("off")
 n = 54
 m = 60
-ax.imshow(img[n:-n, m:-m, zmax - 1], cmap="gray", alpha=0.5, origin="lower")
+ax.imshow(img[n:-n, m:-m, zmax - 1], **DLT_KW_IMAGE)
 CC = seg_myo[n:-n, m:-m, zmax - 1]
 ax.imshow(
     np.ma.masked_where(CC == 0, CC),
     alpha=1,
-    cmap=ListedColormap(["C3"]),
+    cmap=ListedColormap(["C11"]),
     origin="lower",
 )
 CC = seg_myo[n:-n, m:-m, zmax]
@@ -149,14 +112,36 @@ img_slices_dilate[range(1, 256 + 1, 2), :] = img_slices
 
 m = 15
 CC = img_slices_dilate[:, m:-m]
-ax.imshow(np.ma.masked_where(CC == 0, CC), cmap="gray", alpha=0.5, origin="upper")
+ax.imshow(np.ma.masked_where(CC == 0, CC), **DLT_KW_IMAGE)
 CC = seg_slices_dilate[:, m:-m]
 ax.imshow(
     np.ma.masked_where(CC == 0, CC),
     alpha=1,
-    cmap=ListedColormap(["C3"]),
+    cmap=ListedColormap(["C11"]),
     origin="upper",
 )
+plt.tight_layout()
+plt.savefig("results/cardiac_consecutive_slices.pdf", format="pdf", bbox_inches="tight")
+plt.show()
 
-plt.savefig("results/coronal_consecutive_slices.pdf", format="pdf", bbox_inches="tight")
+# %% Figure article - one coronal slice
+
+# Reopen image (without Gaussian blur)
+img_ed, seg_gt_ed = parseACDC(n_image, end="ED")
+img_es, seg_gt_es = parseACDC(n_image, end="ES")
+
+fig, axes = plt.subplots(2, 2, figsize=(10, 10))
+for ax_list in axes:
+    for ax in ax_list:
+        ax.axis("off")
+axes[0, 0].imshow(img_ed[:, :, z_pos], **DLT_KW_IMAGE)
+axes[0, 1].imshow(img_ed[:, :, z_pos], **DLT_KW_IMAGE)
+axes[0, 1].imshow(seg_gt_ed[:, :, z_pos], **DLT_KW_SEG)
+axes[1, 0].imshow(img_es[:, :, z_pos], **DLT_KW_IMAGE)
+axes[1, 1].imshow(img_es[:, :, z_pos], **DLT_KW_IMAGE)
+axes[1, 1].imshow(seg_gt_es[:, :, z_pos], **DLT_KW_SEG)
+
+
+plt.tight_layout()
+plt.savefig("results/cardiac_examples.pdf", format="pdf", bbox_inches="tight")
 plt.show()

@@ -70,9 +70,23 @@ def open_nib(
         path = ROOT_DIRECTORY + "/../data/brats_2021/"
     elif data_base == "bratsreg_2022":
         path = ROOT_DIRECTORY + "/../data/bratsreg_2022/BraTSReg_Training_Data_v3/"
+    elif data_base == "brats_2025":
+        path = ROOT_DIRECTORY + "/../data/brats_2025/"
     else:
         path = data_base
-    img_nib = nib_load(path + folder_name + "/" + folder_name + "_" + irm_type + format)
+    # Open file
+    if data_base != "brats_2025":
+        img_nib = nib_load(
+            path + folder_name + "/" + folder_name + "_" + irm_type + format
+        )
+    else:
+        if irm_type == "flair":
+            irm_type = "t2f"
+        elif irm_type == "t1ce":
+            irm_type = "t1c"
+        img_nib = nib_load(
+            path + folder_name + "/" + folder_name + "-" + irm_type + format
+        )
     img = img_nib.get_fdata()
     method = None
     if isinstance(normalize, str):
@@ -123,6 +137,9 @@ class parse_brats:
             )
             # print(f"\n!!!!!! {self.flag_bratsReg_2022} <<<<<<<<\n")
             self.flag_bratsReg_2022 = True
+        elif "2025" in brats_folder:
+            self.brats_folder = ROOT_DIRECTORY + "/../data/brats_2025/"
+            self.flag_brats_2025 = True
 
         # TODO : check that the list is correct by parsing with os.get_dir ...
         if brats_list is None:
@@ -151,6 +168,8 @@ class parse_brats:
             if self.flag_bratsReg_2022 and "BraTSReg_" in obj:
                 self.brats_list.append(obj)
             if self.flag_brats_2021 and "BraTS2021" in obj:
+                self.brats_list.append(obj)
+            if self.flag_brats_2025 and "BraTS-GLI" in obj:
                 self.brats_list.append(obj)
 
     def get_template(self, normalised=True):
@@ -348,6 +367,39 @@ class parse_brats:
 
         return img_0, img_1, seg_img_0, seg_img_1, landmarks
 
+    def _call_brats_2025_(self, index, to_torch, normalize=False, get_nib=False):
+        brats_name = self.brats_list[index]
+        gliom = open_nib(
+            brats_name,
+            self.modality.lower(),
+            "brats_2025",
+            normalize=False if get_nib else "min_max",
+            to_torch=False,
+        )
+        segmentation_tumor = open_nib(
+            brats_name, "seg", "brats_2025", normalize=False, to_torch=to_torch
+        )
+        if get_nib:
+            return (gliom, segmentation_tumor)
+        if to_torch:
+            segmentation_tumor[segmentation_tumor == 2] = 0.5
+            segmentation_tumor[segmentation_tumor == 3] = 1
+        else:
+            segmentation_tumor = segmentation_tumor.get_fdata()
+
+        gliom_img = gliom.get_fdata()
+        if self.flag_get_template and normalize:
+            gliom_img[gliom_img > 0] = match_histograms(
+                gliom_img[gliom_img > 0], self.template_img[self.template_img > 0]
+            )
+            gliom_img = (gliom_img - gliom_img.min()) / (
+                gliom_img.max() - gliom_img.min()
+            )
+
+        if to_torch:
+            gliom_img = torch.Tensor(gliom_img, device=self.device)[None, None]
+        return (gliom_img, segmentation_tumor)
+
     def __call__(
         self,
         index,
@@ -377,6 +429,10 @@ class parse_brats:
         if self.flag_bratsReg_2022:
             return self._call_bratsReg_2022(
                 index, to_torch, scale, rigidly_reg=rigidly_reg
+            )
+        if self.flag_brats_2025:
+            return self._call_brats_2025_(
+                index, to_torch, normalize=normalize, get_nib=get_nib
             )
         # source = nib.Nifti1Image(source_img, self.template_affine)
         # return source.get_fdata()

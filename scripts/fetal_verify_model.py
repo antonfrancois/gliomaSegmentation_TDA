@@ -5,18 +5,13 @@ import skimage
 from segmentations import parseSTA, preprocess_fetal
 from utils import ChronometerStart, ChronometerTick
 
-# %% Define poarameters
+# %% Define preprocess parameters
 
 verbose, plot = False, False
 
-# Parameters
 sigma = 0.5  # Preprocess, Gaussian blur
-radius_dilation = 1  # Preprocess, dilation parameter
+radius_dilation = 0  # Preprocess, dilation parameter
 zero_boundary = 0.3  # Preprocess, to suppress the boundary
-min_dist_bars = 0.03  # Step 2, to consider multiple bars
-ratio_upper = 3 / 4  # Step 2, max relative size of object (circle)
-ratio_lower = 1 / 50  # Step 2, min relative size of interior
-select_bar = "birth"  # Step 2, optimal bar according to 'width' (of hole), 'pers' (of bar) or 'birth'
 
 # %% Verify model - homology
 
@@ -70,7 +65,6 @@ for n_image in range(21, 38 + 1):
         [components_number_byslice[y] in [2, 3] for y in components_number_byslice]
     )
     max_number_CC[n_image] = max(components_number_byslice.values())
-
     ChronometerTick(start_time, n_image - 1, 38, msg)
 
 # %% Print results
@@ -80,3 +74,6 @@ print(
 )
 
 print("Max number of CC in all slice:", max(max_number_CC.values()))
+
+# Per image, mean number of slices satisfying (H2'): 57.76%
+# Max number of CC in all slice: 3

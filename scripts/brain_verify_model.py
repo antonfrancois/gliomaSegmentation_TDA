@@ -1,6 +1,5 @@
 # %% Imports
 
-import ast
 import numpy as np
 import pandas as pd
 import scipy, skimage
@@ -21,7 +20,7 @@ def verify_hypotheses(seg_medecin, img_flair):
     # Define components
     seg_TC = (seg_medecin == 1) * 1  # TC
     seg_ED = (seg_medecin == 2) * 1  # ED
-    seg_ET = (seg_medecin == 4) * 1  # ET
+    seg_ET = (seg_medecin == 3) * 1  # ET
     seg_WT = (seg_medecin > 0) * 1  # WT
 
     # Components are nonempty
@@ -54,15 +53,14 @@ def quantify_sphericity(seg_medecin, dilatation=0):
     # Define components
     seg_TC = (seg_medecin == 1) * 1  # TC
     seg_ED = (seg_medecin == 2) * 1  # ED
-    seg_ET = (seg_medecin == 4) * 1  # ET
+    seg_ET = (seg_medecin == 3) * 1  # ET
     seg_WT = (seg_medecin > 0) * 1  # WT
 
     # Dilate
     for i in range(dilatation):
         seg_ET = scipy.ndimage.binary_dilation(seg_ET, iterations=1)
-    seg_medecin[seg_ET > 0] = (
-        4  # /!\ modification of seg_medecin here, to get fair results
-    )
+    # /!\ modification of seg_medecin here, to get fair results
+    seg_medecin[seg_ET > 0] = 3
 
     # Extract CC
     seg_complement = 1 - seg_ET
@@ -79,7 +77,7 @@ def quantify_sphericity(seg_medecin, dilatation=0):
     component_TC = np.sum(components, 0)
 
     # Define seg and plot
-    seg_final = seg_ET.copy() * 4  # define seg_final
+    seg_final = seg_ET.copy() * 3  # define seg_final
     seg_final[component_ED > 0] = 2
     seg_final[component_TC > 0] = 1
 
@@ -96,12 +94,12 @@ normalize = "max"
 enhance = (True, True)
 radius_enhance = 1
 dilate = True
-radius_dilation = 3
+radius_dilation = 2
 parameters = [sigma, normalize, enhance, radius_enhance, dilate, radius_dilation]
 
 # Open images.
 pb = pB.parse_brats(
-    brats_list=None, brats_folder="2021", modality="flair", get_template=False
+    brats_list=None, brats_folder="2025", modality="flair", get_template=False
 )
 i_list = range(len(pb.brats_list))
 
@@ -138,7 +136,7 @@ for i in i_list:
     # Verify model: old quantities.
     seg_TC = (seg_gt == 1) * 1  # TC
     seg_ED = (seg_gt == 2) * 1  # ED
-    seg_ET = (seg_gt == 4) * 1  # ET
+    seg_ET = (seg_gt == 3) * 1  # ET
     seg_WT = (seg_gt > 0) * 1  # WT
     if np.sum(seg_TC) > 0 and np.sum(seg_ED) > 0 and np.sum(seg_ET) > 0:
         # (H2') Compare voxels intensity
@@ -212,7 +210,7 @@ for i in i_list:
 
 # Save results.
 pd.DataFrame.from_dict(images_verify_model, orient="index").to_csv(
-    f"results/VerifyModel_{str(parameters)}_len{len(images_verify_model)}.csv"
+    f"results/brain_brats2025_verifymodel_{str(parameters)}_len{len(images_verify_model)}.csv"
 )
 
 # %% Print results.
@@ -220,13 +218,13 @@ pd.DataFrame.from_dict(images_verify_model, orient="index").to_csv(
 # Parameters of the model.
 thresh_smallTC = 50  # upper bound on ratio WT/TC
 thresh_WTconnected = 10  # lower bound on ratio first/second largest CC
-admissible_argmax_FLAIR = [1, 4]  # values that argmax can take in FLAIR
-admissible_argmax_T1ce = [4]  # values that argmax can take in T1ce
+admissible_argmax_FLAIR = [1, 3]  # values that argmax can take in FLAIR
+admissible_argmax_T1ce = [3]  # values that argmax can take in T1ce
 RatioComponentsWidth = 1  # lower bound on ratio of ...
 
 # Identify images that satisfy the model.
 df_VerifyModel = pd.read_csv(
-    f"results/VerifyModel_{str(parameters)}_len{len(images_verify_model)}.csv"
+    f"results/brain_brats2025_verifymodel_{str(parameters)}_len{len(images_verify_model)}.csv"
 )
 names_verify_model = {name: False for name in df_VerifyModel["brats_name"]}
 for i in range(len(df_VerifyModel)):
