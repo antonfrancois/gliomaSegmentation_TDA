@@ -56,6 +56,7 @@ from utils import (
     get_multiple_dice,
 )
 from parseBrats import ROOT_DIRECTORY
+from skimage.filters import threshold_otsu
 
 """---------------------------------------------------------------------------------------------------------------------
 Brain segmentations
@@ -217,6 +218,9 @@ def segment_whole_object(
         seg_whole = seg_whole * 1
         if verbose:
             ChronometerStop(start_time, method="s")
+    elif method == "otsu":
+        thresh = threshold_otsu(img)
+        seg_whole = (seg_gt > thresh) * 1
     return seg_whole
 
 
@@ -366,6 +370,7 @@ def segment_brain(
     seg_whole = segment_whole_object(
         img=img_flair, threshold=whole_threshold, verbose=verbose, plot=plot, save=save
     )
+
     # Module 2: Segmentation geometric object.
     seg_geom = segment_geometric_object(
         img=img_t1ce,
