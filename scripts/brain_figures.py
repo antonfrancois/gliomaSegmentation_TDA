@@ -1,8 +1,10 @@
 # %% Imports
 
-import parseBrats as pB
-from segmentations import segment_brain
-from utils import (
+import __init__
+
+import src.parseBrats as pB
+from src.segmentations import segment_brain
+from src.utils import (
     get_multiple_dice,
     plot_comparison_full_segmentations,
 )

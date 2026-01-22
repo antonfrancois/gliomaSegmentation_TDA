@@ -20,6 +20,7 @@ notebook = "^7.4.4"
 simpleitk = "^2.5.2"
 pywavelets = "^1.9.0"
 gudhi = "^3.11.0"
+persim = "^0.3.7"
 
 
 [build-system]
