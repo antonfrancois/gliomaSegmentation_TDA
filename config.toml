@@ -1,0 +1,12 @@
+# Configure dataset locations. Update the paths below to point to your local copies.
+# Relative paths are resolved from the repository root (this file's directory).
+
+[data_paths]
+template = ""
+brats = ""
+brats_2021 = ""
+brats_2025 = ""
+bratsreg_2022_train = ""
+bratsreg_2022_valid = ""
+bratsreg_2022_seg_train = ""
+bratsreg_2022_seg_valid = ""

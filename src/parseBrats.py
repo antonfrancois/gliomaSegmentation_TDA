@@ -17,8 +17,10 @@ Functions and classes:
 
 # Standard imports.
 import os
+from pathlib import Path
 from warnings import warn
 import csv
+import tomllib
 
 # Third-party imports.
 import numpy as np
@@ -29,6 +31,43 @@ from skimage.exposure import match_histograms
 # import nrrd
 
 ROOT_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+# Configuration file is expected at repository root.
+CONFIG_PATH = Path(ROOT_DIRECTORY).parent / "config.toml"
+
+
+def _default_data_paths():
+    root = Path(ROOT_DIRECTORY).parent
+    return {
+        "template": root / "data" / "template" / "sri_spm8" / "templates",
+        "brats": root / "data" / "brats",
+        "brats_2021": root / "data" / "brats_2021",
+        "brats_2025": Path(ROOT_DIRECTORY)
+        / "/data/brats/BraTS2025-GLI-PRE-Challenge-TrainingData",
+        "bratsreg_2022_train": root / "data" / "bratsreg_2022" / "BraTSReg_Training_Data_v3",
+        "bratsreg_2022_valid": root / "data" / "bratsreg_2022" / "BraTSReg_Validation_Data",
+        "bratsreg_2022_seg_train": root / "data" / "bratsreg_2022" / "Train_seg",
+        "bratsreg_2022_seg_valid": root / "data" / "bratsreg_2022" / "Valid_seg",
+    }
+
+
+def _load_data_paths():
+    paths = _default_data_paths()
+    if CONFIG_PATH.exists():
+        try:
+            cfg = tomllib.loads(CONFIG_PATH.read_text())
+            user_paths = cfg.get("data_paths", {})
+            for key, value in user_paths.items():
+                if value:
+                    candidate = Path(value)
+                    if not candidate.is_absolute():
+                        candidate = CONFIG_PATH.parent / candidate
+                    paths[key] = candidate
+        except Exception as exc:  # pragma: no cover - defensive, keep behavior
+            warn(f"Could not read config at {CONFIG_PATH}: {exc}")
+    return paths
+
+
+DATA_PATHS = _load_data_paths()
 
 
 def resize_image(image, scale_factor):
@@ -64,29 +103,28 @@ def open_nib(
     """
     to get a nib, use normalise = False and to_torch = False
     """
-    if data_base == "brats":
-        path = ROOT_DIRECTORY + "/../data/brats/"
-    elif data_base == "brats_2021":
-        path = ROOT_DIRECTORY + "/../data/brats_2021/"
-    elif data_base == "bratsreg_2022":
-        path = ROOT_DIRECTORY + "/../data/bratsreg_2022/BraTSReg_Training_Data_v3/"
-    elif data_base == "brats_2025":
-        path = ROOT_DIRECTORY + "/../data/brats_2025/"
+    if data_base in ("brats", "brats_2021", "bratsreg_2022", "brats_2025"):
+        base_path = DATA_PATHS[data_base]
     else:
-        path = data_base
-    # Open file
+        base_path = Path(data_base)
+
+    folder_path = Path(base_path) / folder_name
+
     if data_base != "brats_2025":
-        img_nib = nib_load(
-            path + folder_name + "/" + folder_name + "_" + irm_type + format
-        )
+        file_path = folder_path / f"{folder_name}_{irm_type}{format}"
     else:
         if irm_type == "flair":
             irm_type = "t2f"
         elif irm_type == "t1ce":
             irm_type = "t1c"
-        img_nib = nib_load(
-            path + folder_name + "/" + folder_name + "-" + irm_type + format
+        file_path = folder_path / f"{folder_name}-{irm_type}{format}"
+
+    if not file_path.exists():
+        raise FileNotFoundError(
+            f"Could not open file at '{file_path}'. Please update dataset paths in {CONFIG_PATH}"
         )
+
+    img_nib = nib_load(str(file_path))
     img = img_nib.get_fdata()
     method = None
     if isinstance(normalize, str):
@@ -121,25 +159,26 @@ class parse_brats:
         """
         self.flag_brats_2021 = False
         self.flag_bratsReg_2022 = False
+        self.flag_brats_2025 = False
         if template_folder is None:
-            template_folder = ROOT_DIRECTORY + "/../data/template/sri_spm8/templates/"
-        if brats_folder is None or "2021" in brats_folder:
-            self.brats_folder = ROOT_DIRECTORY + "/../data/brats_2021/"
+            template_folder = DATA_PATHS["template"]
+        if brats_folder is not None:
+            brats_folder = Path(brats_folder)
+        if brats_folder is None or "2021" in str(brats_folder):
+            self.brats_folder = DATA_PATHS["brats_2021"]
             self.flag_brats_2021 = True
-        elif "2022_valid" in brats_folder:
-            self.brats_folder = (
-                ROOT_DIRECTORY + "/../data/bratsreg_2022/BraTSReg_Validation_Data/"
-            )
+        elif "2022_valid" in str(brats_folder):
+            self.brats_folder = DATA_PATHS["bratsreg_2022_valid"]
             self.flag_bratsReg_2022 = True
-        elif "2022" in brats_folder:
-            self.brats_folder = (
-                ROOT_DIRECTORY + "/../data/bratsreg_2022/BraTSReg_Training_Data_v3/"
-            )
+        elif "2022" in str(brats_folder):
+            self.brats_folder = DATA_PATHS["bratsreg_2022_train"]
             # print(f"\n!!!!!! {self.flag_bratsReg_2022} <<<<<<<<\n")
             self.flag_bratsReg_2022 = True
-        elif "2025" in brats_folder:
-            self.brats_folder = ROOT_DIRECTORY + "/../data/brats_2025/"
+        elif "2025" in str(brats_folder):
+            self.brats_folder = DATA_PATHS["brats_2025"]
             self.flag_brats_2025 = True
+        else:
+            self.brats_folder = Path(brats_folder)
 
         # TODO : check that the list is correct by parsing with os.get_dir ...
         if brats_list is None:
@@ -156,13 +195,24 @@ class parse_brats:
         self.device = device
         self.flag_get_template = get_template
         if not self.flag_bratsReg_2022 and get_template:
-            template_nib = nib_load(template_folder + modality + "_brain.nii")
+            template_folder = Path(template_folder)
+            template_brain_path = template_folder / f"{modality}_brain.nii"
+            template_seg_path = template_folder / "seg_sri24.mgz"
+            if not template_brain_path.exists() or not template_seg_path.exists():
+                raise FileNotFoundError(
+                    f"Template files missing under '{template_folder}'. Please update dataset paths in {CONFIG_PATH}"
+                )
+            template_nib = nib_load(str(template_brain_path))
             self.template_affine = template_nib.affine
             self.template_img = template_nib.get_fdata()[:, ::-1, :, 0]
 
-            self.template_seg = nib_load(template_folder + "seg_sri24.mgz").get_fdata()
+            self.template_seg = nib_load(str(template_seg_path)).get_fdata()
 
     def _make_brats_list(self, folder):
+        if not os.path.isdir(folder):
+            raise FileNotFoundError(
+                f"Dataset folder '{folder}' not found. Please update dataset paths in {CONFIG_PATH}"
+            )
         self.brats_list = []
         for obj in os.listdir(folder):
             if self.flag_bratsReg_2022 and "BraTSReg_" in obj:
@@ -194,12 +244,15 @@ class parse_brats:
         return whmtr_seg.flip(1)
 
     def get_vesicule_seg(self, index, mask_correction=None):
-        path = ROOT_DIRECTORY + "/../data/brats_2021/"
+        path = Path(DATA_PATHS["brats_2021"])
         brats_name = self.brats_list[index]
         brats_img_size = (240, 240, 155)
-        vesi, header = nrrd.read(
-            path + brats_name + "/" + brats_name + "_segV.seg.nrrd"
-        )
+        seg_path = path / brats_name / f"{brats_name}_segV.seg.nrrd"
+        if not seg_path.exists():
+            raise FileNotFoundError(
+                f"Could not open file at '{seg_path}'. Please update dataset paths in {CONFIG_PATH}"
+            )
+        vesi, header = nrrd.read(str(seg_path))
         space_origin = header["space origin"]
         vesi_s = vesi.shape
         if vesi_s == brats_img_size:
@@ -295,11 +348,15 @@ class parse_brats:
         :return: The two brains data to get.
         !!! Do not use rigidly_reg it does not work
         """
-        path = self.brats_folder
+        path = Path(self.brats_folder)
 
         folder_name = self.brats_list[index]
-        path += folder_name + "/"
-        file_list = os.listdir(path)
+        case_path = path / folder_name
+        if not case_path.exists():
+            raise FileNotFoundError(
+                f"Case folder '{case_path}' not found. Please update dataset paths in {CONFIG_PATH}"
+            )
+        file_list = os.listdir(case_path)
         file_0 = [
             f for f in file_list if "_00_" in f and self.modality.lower() + "." in f
         ][0]
@@ -313,12 +370,11 @@ class parse_brats:
             file_1 = [
                 f for f in file_list if "_01_" in f and self.modality.lower() + "." in f
             ][0]
-        # print(file_0,file_1)
-        img_nib_0 = nib_load(path + file_0)
+        img_nib_0 = nib_load(str(case_path / file_0))
         self.affine = img_nib_0.affine
         img_0 = img_nib_0.get_fdata()
 
-        img_nib_1 = nib_load(path + file_1)
+        img_nib_1 = nib_load(str(case_path / file_1))
         img_1 = img_nib_1.get_fdata()
 
         # img_1[img_1 > 0] = match_histograms(img_1[img_1 > 0], img_0[img_0 > 0])
@@ -333,18 +389,26 @@ class parse_brats:
         landmarks = self._get_landmarks(path, file_list)
 
         # Segmentation !
-        if "Training_Data" in path:
-            seg_path = ROOT_DIRECTORY + "/../data/bratsreg_2022/Train_seg/"
-        elif "Validation" in path:
-            seg_path = ROOT_DIRECTORY + "/../data/bratsreg_2022/Valid_seg/"
+        if "Training_Data" in str(path):
+            seg_path = Path(DATA_PATHS["bratsreg_2022_seg_train"])
+        elif "Validation" in str(path):
+            seg_path = Path(DATA_PATHS["bratsreg_2022_seg_valid"])
         else:
             raise ValueError("Something went wrong.")
-        seg_img_0 = nib_load(seg_path + folder_name + "_seg_00_.nii.gz").get_fdata()
+        seg_file_0 = seg_path / f"{folder_name}_seg_00_.nii.gz"
+        seg_file_1 = seg_path / f"{folder_name}_seg_01_.nii.gz"
+        for seg_file in (seg_file_0, seg_file_1):
+            if not seg_file.exists():
+                raise FileNotFoundError(
+                    f"Could not open file at '{seg_file}'. Please update dataset paths in {CONFIG_PATH}"
+                )
+
+        seg_img_0 = nib_load(str(seg_file_0)).get_fdata()
         seg_img_0[seg_img_0 == 1] = 3
         seg_img_0[seg_img_0 == 2] = 1.5
         seg_img_0 = seg_img_0 / 3
 
-        seg_img_1 = nib_load(seg_path + folder_name + "_seg_01_.nii.gz").get_fdata()
+        seg_img_1 = nib_load(str(seg_file_1)).get_fdata()
         seg_img_1[seg_img_1 == 1] = 3
         seg_img_1[seg_img_1 == 2] = 1.5
         seg_img_1 = seg_img_1 / 3
