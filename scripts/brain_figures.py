@@ -46,6 +46,7 @@ seg = segment_brain(
     radius_dilation=radius_dilation,
     whole_threshold=whole_threshold,
     max_bars=max_bars,
+    wo_method="otsu", # select method for seg of whole object
     verbose=False,
     plot=True,
     save=True,
