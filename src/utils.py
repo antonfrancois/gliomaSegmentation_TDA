@@ -58,7 +58,7 @@ import glob
 import pandas as pd
 
 # Local imports.
-from morphology import argmax_image
+from src.morphology import argmax_image
 
 """---------------------------------------------------------------------------------------------------------------------
 Global variables

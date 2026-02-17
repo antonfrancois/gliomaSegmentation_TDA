@@ -46,8 +46,8 @@ import cripser
 from nibabel import load as nib_load
 
 # Local imports.
-from morphology import get_component, get_largest_component
-from utils import (
+from src.morphology import get_component, get_largest_component
+from src.utils import (
     ChronometerStart,
     ChronometerStop,
     DLT_KW_IMAGE,
@@ -55,7 +55,7 @@ from utils import (
     get_dice,
     get_multiple_dice,
 )
-from parseBrats import ROOT_DIRECTORY
+from src.parseBrats import ROOT_DIRECTORY
 from skimage.filters import threshold_otsu
 
 """---------------------------------------------------------------------------------------------------------------------
