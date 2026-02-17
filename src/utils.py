@@ -233,9 +233,10 @@ def plot_comparison_binary_segmentations(
 
 
 def plot_comparison_full_segmentations(
-    name, img, seg_gt, seg_est, show_ground_truth=True, save_path=None
+    name, img, seg_gt, seg_est, pos=None, show_ground_truth=True, save_path=None, verbose = False,
 ):
-    pos = argmax_image(img)
+    if pos is None:
+        pos = argmax_image(img)
     seg_contour_true = np.zeros(seg_gt.shape)
     seg_contour_true[seg_gt == 4] = 1
 
@@ -244,18 +245,21 @@ def plot_comparison_full_segmentations(
     # Good segmentation => Green
     good_bool = np.logical_and((seg_gt == seg_est), (seg_gt + seg_est != 0))
     seg_superpose[good_bool] = 3
-    print(
-        f"Well labeled pixels {good_bool.sum()}, proportion in image {good_bool.sum()/(seg_gt > 0).sum()}"
-    )
+    if verbose:
+        print(
+            f"Well labeled pixels {good_bool.sum()}, proportion in image {good_bool.sum()/(seg_gt > 0).sum()}"
+        )
     # It is part of the tumour but mislabeled => Orange
     mislabeled_bool = np.logical_and((seg_gt != seg_est), (seg_gt >= 1), (seg_est >= 1))
     seg_superpose[mislabeled_bool] = 2
-    print(f"mislabeled pixels: {mislabeled_bool.sum()}")
+    if verbose:
+        print(f"mislabeled pixels: {mislabeled_bool.sum()}")
     # Not part of the tumour => Red
     misseg_bool = np.logical_and((seg_gt != seg_est), (seg_gt == 0))
     not_seg = np.logical_and(seg_gt > 0, seg_est == 0)
     seg_superpose[np.logical_or(misseg_bool, not_seg)] = 1
-    print(f"Badly segmented pixels {misseg_bool.sum()}")
+    if verbose:
+        print(f"Badly segmented pixels {misseg_bool.sum()}")
 
     if show_ground_truth:
         fig, ax = plt.subplots(4, 1, constrained_layout=True, figsize=(8, 8 * 4 / 3))
@@ -306,7 +310,7 @@ def plot_comparison_full_segmentations(
     if save_path is not None:
         plt.tight_layout()
         plt.savefig(save_path, format="pdf", bbox_inches="tight")
-    plt.show()
+    # plt.show()
 
 
 def plot_images_and_segmentation(
