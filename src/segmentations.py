@@ -44,6 +44,7 @@ from matplotlib.colors import ListedColormap
 import persim
 import cripser
 from nibabel import load as nib_load
+from sklearn.mixture import GaussianMixture
 
 # Local imports.
 from src.morphology import get_component, get_largest_component
@@ -106,60 +107,170 @@ def preprocess_brain(
     return img_flair, img_t1ce
 
 
-def suggest_t(img, ticks=100, threshold=1, plot=False, ax=None, save=False):
-    """
-    Suggests an optimal threshold value `t` for segmenting the input image `img` by analyzing the change in the number
-    of active voxels as the threshold varies. More specifically, one builds the curve of the number of active voxels as
-    a function of time, takes its derivative, normalizes it, and then identifies the best threshold as the first one
-    where the curve exceeds a specified derivative threshold `dt_threshold`.
 
-    Args:
-        img (np.ndarray): Input image, expected to be normalized in [0, 1].
-        ticks (int, optional): Number of threshold values to test between 0 and 1. Default is 100.
-        threshold (float, optional): Derivative threshold to determine the optimal threshold. Default is 1.
-        plot (bool, optional): If True, plots the active voxel curve and its derivative. Default is False.
-        ax (matplotlib.axes.Axes, optional): Axis to plot on. If None, a new figure is created.
-
-    Returns:
-        float: Suggested threshold value `t`.
-    """
-    vals = np.linspace(0, 1, ticks)
-    # Build suggestion curve.
-    active_vxls = np.array([np.sum(img > t) for t in vals])
-    # Take derivative via finite differences.
-    active_vxls_dt = active_vxls[:-1] - active_vxls[1:]
-    # Normalize it so it has integral 1, i.e., np.sum(active_vxls_dt_norm)/len(active_vxls_dt_norm) = 1.
-    active_vxls_dt_norm = active_vxls_dt * len(active_vxls_dt) / active_vxls_dt.sum()
-    # Find optimal t. The best index is the last index for which active_vxls_dt_norm > dt_threshold.
-    best_idx = np.where(active_vxls_dt_norm > threshold)[0][-1]
-    best_t = vals[best_idx + 1]
-    # Plot if required.
-    if plot or not (ax is None):
-        c1, c2, c3 = "forestgreen", "firebrick", "goldenrod"
-        if ax is None:
-            fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-        f = ax.plot(vals, active_vxls, "o-", label="f", c=c1)
-        ax.plot([best_t, best_t], [0, active_vxls.max()], "--", c=c2)
-        ax.text(best_t + 0.01, 0.8 * active_vxls.max(), f"t = {best_t:.3f}", c=c2)
-        axt = ax.twinx()
-        df = axt.plot(
-            vals[:-1], active_vxls_dt_norm, "D--", c=c3, label="df normalized"
+def suggest_t(img, thresh=0.1, nbins=1000, plot=False, save=False):
+    freq, vals = np.histogram(img[img > thresh], bins=nbins)
+    vals = (vals[1:] + vals[:-1]) / 2
+    mean_freq = freq.sum() / len(freq)
+    i = np.where(freq > mean_freq)[0][-1]
+    t = vals[i]
+    # Plot
+    if plot:
+        fig, ax = plt.subplots(figsize=(4, 4))
+        width = vals[1] - vals[0]
+        ax.bar(vals, freq, width=width, align="center", alpha=0.85)
+        ax.bar(
+            vals[i],
+            freq[i],
+            width=width,
+            align="center",
+            alpha=1.0,
+            label=f"chosen t = {t:.3g}",
         )
-        lns = f + df
-        labs = [l.get_label() for l in lns]
-        ax.set_xlabel("time")
-        ax.set_ylabel("f")
-        axt.set_ylabel("df")
-        ax.yaxis.get_label().set_color(f[0].get_color())
-        axt.yaxis.get_label().set_color(df[0].get_color())
-        ax.legend(lns, labs, loc="upper right")
-        plt.tight_layout()
+        ax.axhline(mean_freq, linestyle="--", linewidth=1.5, label="mean bin count")
+        ax.set_xlabel("Intensity")
+        ax.set_ylabel("Count")
+        ax.set_title("Threshold selection via Module 1")
+        ax.legend(frameon=False)
         if save:
-            plt.savefig("results/brain_suggest_t.png", dpi=300)
-        if plot:
-            plt.show()
-    return best_t
+            plt.savefig("brain_suggest_t.pdf", dpi=300, bbox_inches="tight")
+    return t
 
+def threshold_triangle(image, nbins=1000):
+    """Simple wrapper with flip"""
+    # nbins is ignored for integer arrays
+    # so, we recalculate the effective nbins.
+    hist, bin_centers = skimage.exposure.histogram(
+        image.reshape(-1), nbins, source_range="image"
+    )
+    nbins = len(hist)
+
+    # Find peak, lowest and highest gray levels.
+    arg_peak_height = np.argmax(hist)
+    peak_height = hist[arg_peak_height]
+    arg_low_level, arg_high_level = np.flatnonzero(hist)[[0, -1]]
+
+    if arg_low_level == arg_high_level:
+        # Image has constant intensity.
+        return image.ravel()[0]
+
+    # MODIFICATION HERE: Flip always.
+    hist = hist[::-1]
+    arg_low_level = nbins - arg_high_level - 1
+    arg_peak_height = nbins - arg_peak_height - 1
+
+    # If flip == True, arg_high_level becomes incorrect
+    # but we don't need it anymore.
+    del arg_high_level
+
+    # Set up the coordinate system.
+    width = arg_peak_height - arg_low_level
+    x1 = np.arange(width)
+    y1 = hist[x1 + arg_low_level]
+
+    # Normalize.
+    norm = np.sqrt(peak_height*2 + width*2)
+    peak_height /= norm
+    width /= norm
+
+    # Maximize the length.
+    # The ImageJ implementation includes an additional constant when calculating
+    # the length, but here we omit it as it does not affect the location of the
+    # minimum.
+    length = peak_height * x1 - width * y1
+    arg_level = np.argmax(length) + arg_low_level
+
+    # MODIFICATION HERE: Flip always.
+    arg_level = nbins - arg_level - 1
+
+    return bin_centers[arg_level]
+
+def gmm_segment_volume(
+    vol: np.ndarray,
+    n_components: int = 3,
+    mask_zeros: bool = True,
+    random_state: int = 0,
+    max_iter: int = 200,
+    n_init: int = 5,
+    covariance_type: str = "full",
+):
+    """
+    Segment a 3D MRI volume with a Gaussian Mixture Model (GMM) on voxel intensities.
+
+    Parameters
+    ----------
+    vol : np.ndarray
+        3D volume (Z,Y,X) or (Y,X,Z). Any shape is fine.
+    n_components : int
+        Number of mixture components (classes).
+    mask_zeros : bool
+        If True, fit GMM only on voxels with intensity > 0 and set zeros to label 0.
+    random_state : int
+        Random seed for reproducibility.
+    max_iter : int
+        Maximum EM iterations.
+    n_init : int
+        Number of initializations (keep best).
+    covariance_type : str
+        'full', 'diag', 'tied', or 'spherical'.
+
+    Returns
+    -------
+    labels : np.ndarray
+        Integer label map with same shape as vol.
+        If mask_zeros=True, background zeros get label 0; other labels are 1..n_components.
+    posteriors : np.ndarray or None
+        Posterior probabilities per component (same shape as vol + (n_components,)) for nonzero voxels,
+        or None if you do not want them (can be large). Currently returned.
+    gmm : GaussianMixture
+        Fitted sklearn model.
+    """
+    vol = np.asarray(vol)
+    if vol.ndim != 3:
+        raise ValueError(f"Expected a 3D volume, got shape {vol.shape}")
+
+    vol_f = vol.astype(np.float32, copy=False)
+
+    if mask_zeros:
+        m = vol_f > 0
+        x = vol_f[m].reshape(-1, 1)
+        if x.size == 0:
+            raise ValueError("No nonzero voxels found (mask_zeros=True).")
+    else:
+        m = np.ones(vol_f.shape, dtype=bool)
+        x = vol_f.reshape(-1, 1)
+
+    # Optional: robust normalization helps EM stability in MRI
+    med = np.median(x)
+    mad = np.median(np.abs(x - med)) + 1e-8
+    x_norm = (x - med) / mad
+
+    gmm = GaussianMixture(
+        n_components=n_components,
+        covariance_type=covariance_type,
+        max_iter=max_iter,
+        n_init=n_init,
+        random_state=random_state,
+        reg_covar=1e-6,  # small regularization for numerical stability
+    )
+    gmm.fit(x_norm)
+
+    # Predict labels and probabilities for the fitted voxels
+    y = gmm.predict(x_norm)  # 0..n_components-1
+    p = gmm.predict_proba(x_norm)  # (N, n_components)
+
+    # Build full-size outputs
+    labels = np.zeros(vol_f.shape, dtype=np.int16)
+    posteriors = np.zeros(vol_f.shape + (n_components,), dtype=np.float32)
+
+    if mask_zeros:
+        labels[m] = (y + 1).astype(np.int16)  # reserve 0 for background
+        posteriors[m] = p
+    else:
+        labels = y.reshape(vol_f.shape).astype(np.int16)
+        posteriors = p.reshape(vol_f.shape + (n_components,)).astype(np.float32)
+
+    return labels, posteriors, gmm
 
 def segment_whole_object(
     img,
@@ -170,6 +281,7 @@ def segment_whole_object(
     verbose=True,
     plot=True,
     save=False,
+    min_volume_suggest_t=3000,
 ):
     """Segments the whole tumor from a FLAIR image. The method 'suggest_t', 'gt' or 'gt_hull'."""
     # Segment via automatic threshold detection.
@@ -179,10 +291,14 @@ def segment_whole_object(
         # Find the best threshold.
         t = suggest_t(
             img=img,
-            threshold=threshold,
-            plot=plot,
-            save=save,
+            # threshold=threshold,
+            # plot=plot,
+            # save=save,
         )
+        # Fine-tune t.
+        step = 0.01
+        while get_largest_component(img, t, verbose=False).sum() < min_volume_suggest_t:
+            t -= step
         if verbose:
             ChronometerStop(start_time, method="s")
         # Extract the largest component.
@@ -218,10 +334,7 @@ def segment_whole_object(
         seg_whole = seg_whole * 1
         if verbose:
             ChronometerStop(start_time, method="s")
-    elif method == "otsu":
-        thresh = threshold_otsu(img)
-        seg_whole = (seg_gt > thresh) * 1
-    return seg_whole
+    return seg_whole, t
 
 
 def segment_geometric_object(
@@ -351,6 +464,7 @@ def segment_brain(
     radius_dilation=1,
     whole_threshold=1,
     max_bars=2,
+    wo_method = "suggest_t",
     verbose=False,
     plot=False,
     save=False,
@@ -368,7 +482,7 @@ def segment_brain(
     )
     # Module 1: Segmentation whole object.
     seg_whole = segment_whole_object(
-        img=img_flair, threshold=whole_threshold, verbose=verbose, plot=plot, save=save
+        img=img_flair, method=wo_method, threshold=whole_threshold, verbose=verbose, plot=plot, save=save
     )
 
     # Module 2: Segmentation geometric object.
