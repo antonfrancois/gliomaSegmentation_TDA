@@ -20,6 +20,8 @@ notebook = "^7.4.4"
 simpleitk = "^2.5.2"
 pywavelets = "^1.9.0"
 gudhi = "^3.11.0"
+ipykernel = "^7.1.0"
+scipy-stubs = "~=1.16.0"
 
 
 [build-system]

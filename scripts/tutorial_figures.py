@@ -159,9 +159,9 @@ plt.savefig("results/tutorial_sri24_superlevels.pdf", bbox_inches="tight")
 plt.show()
 
 
-# %% Persistence of SRI24 template
+# %% Persistence of SRI24 template - with gudhi
 
-# Plot persistence
+# Plot persistence (sub and super)
 pers = PersistenceSublevel(im)
 fig, axs = plt.subplots(1, 2, figsize=(10, 5))
 gudhi.plot_persistence_diagram(pers, axes=axs[0], max_intervals=500)
@@ -171,6 +171,37 @@ fig.subplots_adjust(wspace=0.25, hspace=0)
 axs[0].set_title("")
 axs[1].set_title("")
 plt.show()
+
+# %% Persistence of SRI24 template - with cripser
+
+# Compute persistence using cripser (sublevel and superlevel)
+barcode_sub = cripser.computePH(im, maxdim=2)
+barcode_super = cripser.computePH(1 - im, maxdim=2)
+
+# %%
+# Plot persistence diagrams
+plt.rcParams["figure.dpi"] = 200
+plt.rcParams["savefig.dpi"] = 300
+plt.rcParams["image.interpolation"] = "antialiased"
+
+dim_max = 1
+barcode_sub_plt = [
+    np.array([np.clip(bar[1:3], 0, 1) for bar in barcode_sub if bar[0] == i])
+    for i in range(dim_max + 1)
+]
+barcode_super_plt = [
+    np.array([np.clip(bar[1:3], 0, 1) for bar in barcode_super if bar[0] == i])
+    for i in range(dim_max + 1)
+]
+
+fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+persim.plot_diagrams(barcode_sub_plt, show=False, ax=axs[0])
+axs[0].set_title("")
+persim.plot_diagrams(barcode_super_plt, show=False, ax=axs[1])
+axs[1].set_title("")
+plt.show()
+
+# Increase quality of image
 
 # %% Plot CC
 

@@ -40,7 +40,6 @@ Grid search:
     aggregate_and_update_summary
     compute_remaining_work
 
-
 --------------------------------------------------------------------------------------------------------------------
 """
 
@@ -83,6 +82,10 @@ Metrics
 
 
 def get_dice(seg_1, seg_2, verbose=False):
+    # Segmentations must be binary
+    seg_1 = (seg_1 > 0) * 1
+    seg_2 = (seg_2 > 0) * 1
+    # Compute Dice
     prod_seg = seg_1 * seg_2
     sum_seg = seg_1 + seg_2
     if sum_seg.sum() == 0:
@@ -91,13 +94,13 @@ def get_dice(seg_1, seg_2, verbose=False):
         dice = 2 * prod_seg.sum() / sum_seg.sum()
     if verbose:
         # Non-symmetric scores
-        diceleft = prod_seg.sum() / seg_1.sum()
-        diceright = prod_seg.sum() / seg_2.sum()
+        dice_left = prod_seg.sum() / seg_1.sum()
+        dice_right = prod_seg.sum() / seg_2.sum()
         print(
             "Sørensen–Dice coefficient (sym, left and right):",
             round(dice, 3),
-            round(diceleft, 3),
-            round(diceright, 3),
+            round(dice_left, 3),
+            round(dice_right, 3),
         )
     return dice
 
