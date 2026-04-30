@@ -22,9 +22,9 @@ The pipeline is organized into three steps:
 
 Our two main applications are illustrated in the following Jupyter notebooks:
 - **Glioblastoma** segmentation on BraTS 2025: [tutorial_brain_segmentation.ipynb](notebooks/tutorial_brain_segmentation.ipynb)
-- **Cortical plate** segmentation on SAT: [tutorial_fetal_segmentation.ipynb](notebooks/tutorial_fetal_segmentation.ipynb)
+- **Cortical plate** segmentation on STA: [tutorial_fetal_segmentation.ipynb](notebooks/tutorial_fetal_segmentation.ipynb)
 
-In addition, preliminary experiments on another dataset can be found at:
+In addition, preliminary experiments on another dataset (not present in the article) can be found at:
 
 - **Myocardium** segmentation on ACDC: [tutorial_cardiac_segmentation.ipynb](notebooks/tutorial_cardiac_segmentation.ipynb)
 
@@ -38,7 +38,7 @@ which often carries a spherical topological signature.
 The remaining tumor components are finally deduced from their position inside or outside the detected enhancing structure.
 
 <a href="results/brain_example_segmentation.png">
-  <img src="results/brain_example_segmentation.png" alt="Triangulation of the CW structure" width="400" />
+  <img src="results/brain_example_segmentation.png" alt="Glioblastoma segmentation example" width="800" />
 </a>
 
 ### Cortical plate segmentation on STA
@@ -52,7 +52,7 @@ which can be detected through one-dimensional persistent homology.
 The final segmentation is obtained by selecting the topological features whose associated components best match the expected cortical plate geometry.
 
 <a href="results/fetal_example_segmentation.png">
-  <img src="results/fetal_example_segmentation.png" alt="Triangulation of the CW structure" width="400" />
+  <img src="results/fetal_example_segmentation.png" alt="Cortical plate segmentation example" width="800" />
 </a>
 
 ### Myocardium segmentation on ACDC
@@ -64,5 +64,5 @@ which appear as bright components, and then detecting the myocardium as the hypo
 Persistent homology is used to exploit the circular or cylindrical topology of the myocardium, either slice by slice in 2D or directly in 3D.
 
 <a href="results/cardiac_example_segmentation.png">
-  <img src="results/cardiac_example_segmentation.png" alt="Triangulation of the CW structure" width="400" />
+  <img src="results/cardiac_example_segmentation.png" alt="Myocardium segmentation example" width="800" />
 </a>
