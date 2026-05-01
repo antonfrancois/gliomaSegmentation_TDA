@@ -14,12 +14,12 @@ from utils import (
 # Parameters
 normalize = "max"  # preprocess_brain, divide by max or 255
 sigma = 1  # preprocess_brain, Gaussian blur
-enhance = (False, False)  # preprocess_brain, apply enhancement or not
+enhance = (False, True)  # preprocess_brain, apply enhancement or not
 radius_enhance = 1  # preprocess_brain, radius of enhancement
 dilate = True  # preprocess_brain, apply dilation or not on T1ce
-radius_dilation = 1  # preprocess_brain and segment_other_components, radius of dilation
+radius_dilation = 2  # preprocess_brain and segment_other_components, radius of dilation
 whole_threshold = 1  # segment_whole_object, threshold for suggest_t
-max_bars = 2  # segment_geometric_object, number of H2 features to consider
+max_bars = 1  # segment_geometric_object, number of H2 features to consider
 parameters = [
     normalize,
     sigma,

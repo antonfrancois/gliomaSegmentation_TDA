@@ -59,36 +59,68 @@ for name in df_parameters2_cc["brats_name"]:
     if name not in names:
         names[name] = False
 
-# %% Open model
+# # %% Open model -- OLD VERSION
+#
+# # Parameters of the model.
+# thresh_smallTC = 50  # upper bound on ratio WT/TC
+# thresh_WTconnected = 10  # lower bound on ratio first/second largest CC
+# admissible_argmax_FLAIR = [1, 3]  # values that argmax can take in FLAIR
+# admissible_argmax_T1ce = [3]  # values that argmax can take in T1ce
+# RatioComponentsWidth = 1  # lower bound on ratio
+#
+# # Identify images that satisfy the model.
+# # df_VerifyModel = pd.read_csv(
+# #     "results/brain_brats2025_verifymodel_[1, 'max', (True, True), 1, True, 3]_len1251.csv"
+# # )
+# df_VerifyModel = pd.read_csv(
+#     "results/brain_brats2025_verifymodel_[1, 'max', (False, True), 1, True, 2]_len1251.csv"
+# )
+# names_verify_model = {name: False for name in df_VerifyModel["brats_name"]}
+# for i in range(len(df_VerifyModel)):
+#     names_verify_model[df_VerifyModel["brats_name"][i]] = (
+#         df_VerifyModel["nonempty"][i] == True
+#         and df_VerifyModel["smallTC"][i] <= thresh_smallTC
+#         and df_VerifyModel["WTconnected"][i] >= thresh_WTconnected
+#         and df_VerifyModel["boundary_TC"][i] > 0.5
+#         and df_VerifyModel["boundary_ET"][i] < 0.5
+#         and df_VerifyModel["argmax_FLAIR"][i] in admissible_argmax_FLAIR
+#         and df_VerifyModel["argmax_T1ce"][i] in admissible_argmax_T1ce
+#         and (
+#             df_VerifyModel["RatioComponentsWidth"][i] >= RatioComponentsWidth
+#             or np.isnan(df_VerifyModel["RatioComponentsWidth"][i])
+#         )
+#     )
+#
+# # Print result.
+# num_satisfying = np.sum(list(names_verify_model.values()))
+# percent_satisfying = round(num_satisfying / len(df_VerifyModel) * 100, 3)
+# print(
+#     f"Brains satisfying the model: {num_satisfying} = {percent_satisfying}% ({num_satisfying} out of {len(df_VerifyModel)})"
+# )
 
-# Parameters of the model.
-thresh_smallTC = 50  # upper bound on ratio WT/TC
-thresh_WTconnected = 10  # lower bound on ratio first/second largest CC
-admissible_argmax_FLAIR = [1, 3]  # values that argmax can take in FLAIR
-admissible_argmax_T1ce = [3]  # values that argmax can take in T1ce
-RatioComponentsWidth = 1  # lower bound on ratio
+# %% Open model -- NEW VERSION
 
-# Identify images that satisfy the model.
 df_VerifyModel = pd.read_csv(
-    "results/brain_brats2025_verifymodel_[1, 'max', (True, True), 1, True, 3]_len1251.csv"
-)
-df_VerifyModel = pd.read_csv(
-    "results/brain_brats2025_verifymodel_[1, 'max', (True, True), 1, True, 2]_len1251.csv"
+    "results/brain_brats2025_verifymodel_[1, 'max', (False, True), 1, True, 2]_len1251.csv"
 )
 names_verify_model = {name: False for name in df_VerifyModel["brats_name"]}
 for i in range(len(df_VerifyModel)):
     names_verify_model[df_VerifyModel["brats_name"][i]] = (
-        df_VerifyModel["nonempty"][i] == True
-        and df_VerifyModel["smallTC"][i] <= thresh_smallTC
-        and df_VerifyModel["WTconnected"][i] >= thresh_WTconnected
-        and df_VerifyModel["boundary_TC"][i] > 0.5
-        and df_VerifyModel["boundary_ET"][i] < 0.5
-        and df_VerifyModel["argmax_FLAIR"][i] in admissible_argmax_FLAIR
-        and df_VerifyModel["argmax_T1ce"][i] in admissible_argmax_T1ce
-        and (
-            df_VerifyModel["RatioComponentsWidth"][i] >= RatioComponentsWidth
-            or np.isnan(df_VerifyModel["RatioComponentsWidth"][i])
-        )
+        True
+        and df_VerifyModel["nonempty"][i] == True
+        # and df_VerifyModel["smallTC"][i] <= thresh_smallTC
+        # and df_VerifyModel["WTconnected"][i] >= 2
+        # and df_VerifyModel["boundary_TC"][i] > 0.5
+        # and df_VerifyModel["boundary_ET"][i] < 0.5
+        # and df_VerifyModel["argmax_FLAIR"][i] in admissible_argmax_FLAIR
+        # and df_VerifyModel["argmax_T1ce"][i] in admissible_argmax_T1ce
+        # and (
+        #     df_VerifyModel["RatioComponentsWidth"][i] >= RatioComponentsWidth
+        #     or np.isnan(df_VerifyModel["RatioComponentsWidth"][i])
+        # )
+        and df_VerifyModel["h1_median"][i] > 3 / 2
+        and df_VerifyModel["h2_median"][i] > 3 / 2
+        and df_VerifyModel["h3_dil2"][i] > 0.9
     )
 
 # Print result.
@@ -179,7 +211,8 @@ for label_i, label in enumerate(segmentation_labels):
         segmentations.append(seg)
         segmentations_model.append(seg_model)
 
-    for i_name, name in enumerate(names_seg):
+    for i_name, name in enumerate(["TDA"]):
+        # for i_name, name in enumerate(names_seg):
         seg = segmentations[i_name]
         seg_model = segmentations_model[i_name]
         print(

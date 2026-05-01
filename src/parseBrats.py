@@ -6,6 +6,9 @@ See the repo at https://github.com/antonfrancois/gliomaSegmentation_TDA and arti
 
 ------------------------------------------------------------------------------------------------------------------------
 
+Global variable:
+    ROOT_DIRECTORY
+
 Functions and classes:
     resize_image
     nib_normalize

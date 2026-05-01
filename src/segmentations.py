@@ -7,12 +7,18 @@ See the repo at https://github.com/antonfrancois/gliomaSegmentation_TDA and arti
 ------------------------------------------------------------------------------------------------------------------------
 
 Brain segmentations:
+    preprocess_brain
     suggest_t
+    threshold_triangle
     segment_whole_object
+    seed_superlevel_join_value
     segment_geometric_object
     segment_other_components
-    preprocess_brain
     segment_brain
+
+Timing:
+    timer
+    segment_brain_timed
 
 Myocardium segmentations:
     parseACDC
@@ -34,11 +40,15 @@ Fetal cortical plate segmentations:
 """
 
 # Standard imports.
+import time
+from collections import defaultdict
+from contextlib import contextmanager
 
 # Third-party imports.
 import numpy as np
 import scipy
 import skimage
+from skimage.morphology import max_tree
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 import persim
@@ -105,59 +115,83 @@ def preprocess_brain(
     return img_flair, img_t1ce
 
 
-def suggest_t(img, ticks=100, threshold=1, plot=False, ax=None, save=False):
-    """
-    Suggests an optimal threshold value `t` for segmenting the input image `img` by analyzing the change in the number
-    of active voxels as the threshold varies. More specifically, one builds the curve of the number of active voxels as
-    a function of time, takes its derivative, normalizes it, and then identifies the best threshold as the first one
-    where the curve exceeds a specified derivative threshold `dt_threshold`.
-
-    Args:
-        img (np.ndarray): Input image, expected to be normalized in [0, 1].
-        ticks (int, optional): Number of threshold values to test between 0 and 1. Default is 100.
-        threshold (float, optional): Derivative threshold to determine the optimal threshold. Default is 1.
-        plot (bool, optional): If True, plots the active voxel curve and its derivative. Default is False.
-        ax (matplotlib.axes.Axes, optional): Axis to plot on. If None, a new figure is created.
-
-    Returns:
-        float: Suggested threshold value `t`.
-    """
-    vals = np.linspace(0, 1, ticks)
-    # Build suggestion curve.
-    active_vxls = np.array([np.sum(img > t) for t in vals])
-    # Take derivative via finite differences.
-    active_vxls_dt = active_vxls[:-1] - active_vxls[1:]
-    # Normalize it so it has integral 1, i.e., np.sum(active_vxls_dt_norm)/len(active_vxls_dt_norm) = 1.
-    active_vxls_dt_norm = active_vxls_dt * len(active_vxls_dt) / active_vxls_dt.sum()
-    # Find optimal t. The best index is the last index for which active_vxls_dt_norm > dt_threshold.
-    best_idx = np.where(active_vxls_dt_norm > threshold)[0][-1]
-    best_t = vals[best_idx + 1]
-    # Plot if required.
-    if plot or not (ax is None):
-        c1, c2, c3 = "forestgreen", "firebrick", "goldenrod"
-        if ax is None:
-            fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-        f = ax.plot(vals, active_vxls, "o-", label="f", c=c1)
-        ax.plot([best_t, best_t], [0, active_vxls.max()], "--", c=c2)
-        ax.text(best_t + 0.01, 0.8 * active_vxls.max(), f"t = {best_t:.3f}", c=c2)
-        axt = ax.twinx()
-        df = axt.plot(
-            vals[:-1], active_vxls_dt_norm, "D--", c=c3, label="df normalized"
+def suggest_t(img, thresh=0.1, nbins=1000, plot=False, save=False):
+    freq, vals = np.histogram(img[img > thresh], bins=nbins)
+    vals = (vals[1:] + vals[:-1]) / 2
+    mean_freq = freq.sum() / len(freq)
+    i = np.where(freq > mean_freq)[0][-1]
+    t = vals[i]
+    # Plot
+    if plot:
+        fig, ax = plt.subplots(figsize=(4, 4))
+        width = vals[1] - vals[0]
+        ax.bar(vals, freq, width=width, align="center", alpha=0.85)
+        ax.bar(
+            vals[i],
+            freq[i],
+            width=width,
+            align="center",
+            alpha=1.0,
+            label=f"chosen t = {t:.3g}",
         )
-        lns = f + df
-        labs = [l.get_label() for l in lns]
-        ax.set_xlabel("time")
-        ax.set_ylabel("f")
-        axt.set_ylabel("df")
-        ax.yaxis.get_label().set_color(f[0].get_color())
-        axt.yaxis.get_label().set_color(df[0].get_color())
-        ax.legend(lns, labs, loc="upper right")
-        plt.tight_layout()
+        ax.axhline(mean_freq, linestyle="--", linewidth=1.5, label="mean bin count")
+        ax.set_xlabel("Intensity")
+        ax.set_ylabel("Count")
+        ax.set_title("Threshold selection via Module 1")
+        ax.legend(frameon=False)
         if save:
-            plt.savefig("results/brain_suggest_t.png", dpi=300)
-        if plot:
-            plt.show()
-    return best_t
+            plt.savefig("brain_suggest_t.pdf", dpi=300, bbox_inches="tight")
+    return t
+
+
+def threshold_triangle(image, nbins=1000):
+    """Simple wrapper with flip"""
+    # nbins is ignored for integer arrays
+    # so, we recalculate the effective nbins.
+    hist, bin_centers = skimage.exposure.histogram(
+        image.reshape(-1), nbins, source_range="image"
+    )
+    nbins = len(hist)
+
+    # Find peak, lowest and highest gray levels.
+    arg_peak_height = np.argmax(hist)
+    peak_height = hist[arg_peak_height]
+    arg_low_level, arg_high_level = np.flatnonzero(hist)[[0, -1]]
+
+    if arg_low_level == arg_high_level:
+        # Image has constant intensity.
+        return image.ravel()[0]
+
+    # MODIFICATION HERE: Flip always.
+    hist = hist[::-1]
+    arg_low_level = nbins - arg_high_level - 1
+    arg_peak_height = nbins - arg_peak_height - 1
+
+    # If flip == True, arg_high_level becomes incorrect
+    # but we don't need it anymore.
+    del arg_high_level
+
+    # Set up the coordinate system.
+    width = arg_peak_height - arg_low_level
+    x1 = np.arange(width)
+    y1 = hist[x1 + arg_low_level]
+
+    # Normalize.
+    norm = np.sqrt(peak_height**2 + width**2)
+    peak_height /= norm
+    width /= norm
+
+    # Maximize the length.
+    # The ImageJ implementation includes an additional constant when calculating
+    # the length, but here we omit it as it does not affect the location of the
+    # minimum.
+    length = peak_height * x1 - width * y1
+    arg_level = np.argmax(length) + arg_low_level
+
+    # MODIFICATION HERE: Flip always.
+    arg_level = nbins - arg_level - 1
+
+    return bin_centers[arg_level]
 
 
 def segment_whole_object(
@@ -169,6 +203,9 @@ def segment_whole_object(
     verbose=True,
     plot=True,
     save=False,
+    min_volume_suggest_t=3000,
+    # transform_cc=True,
+    finetune=True,
 ):
     """Segments the whole tumor from a FLAIR image. The method 'suggest_t', 'gt' or 'gt_hull'."""
     # Segment via automatic threshold detection.
@@ -178,10 +215,14 @@ def segment_whole_object(
         # Find the best threshold.
         t = suggest_t(
             img=img,
-            threshold=threshold,
+            # threshold=threshold,
             plot=plot,
             save=save,
         )
+        # Fine-tune t.
+        step = 0.01
+        while get_largest_component(img, t, verbose=False).sum() < min_volume_suggest_t:
+            t -= step
         if verbose:
             ChronometerStop(start_time, method="s")
         # Extract the largest component.
@@ -196,15 +237,27 @@ def segment_whole_object(
         seg_whole = scipy.ndimage.binary_fill_holes(seg_whole)
         if verbose:
             ChronometerStop(start_time, method="s")
-        # Smooth via binary closing.
-        if iterations_binary_closing > 0:
-            if verbose:
-                start_time = ChronometerStart("Smoothing... ")
-            seg_whole = scipy.ndimage.morphology.binary_closing(
-                seg_whole, iterations=iterations_binary_closing
+        if finetune:
+            from utils import argmax_image
+            from tests import get_best_component, suggest_t_sphericity
+
+            # Extract the most spherical component.
+            min_sphere = 0.5
+            min_size_sphericity = 10000
+            seg_whole = get_best_component(
+                img, seg_whole, t, min_sphere=min_sphere, min_size=min_size_sphericity
             )
-            if verbose:
-                ChronometerStop(start_time, method="s")
+            pos = argmax_image(seg_whole * img)
+            # Fine-tune.
+            offset = 0.02
+            min_size_sphericity = 10000
+            vmin, vmax = t - offset, t + offset
+            t_finetuned = suggest_t_sphericity(
+                img, pos, vmin, vmax, min_size_sphericity, ticks=100, method="argmax"
+            )
+            seg_whole = get_component(img, pos, t_finetuned)
+            seg_whole = scipy.ndimage.binary_fill_holes(seg_whole)
+
     # Segment using the ground-truth segmentation.
     elif method == "gt":
         seg_whole = (seg_gt > 0) * 1
@@ -218,6 +271,58 @@ def segment_whole_object(
         if verbose:
             ChronometerStop(start_time, method="s")
     return seg_whole
+
+
+def seed_superlevel_join_value(image: np.ndarray, seed_zyx) -> np.ndarray:
+    """
+    For each voxel v, returns the highest threshold t such that v is in the
+    seed's connected component within {image >= t} (6-connectivity).
+
+    seed_zyx must match numpy indexing: image[z, y, x].
+    Output values are in the same scale as image.
+    """
+    img = np.asarray(image)
+    if img.ndim != 3:
+        raise ValueError(f"image must be 3D, got {img.shape}")
+
+    seed = tuple(int(x) for x in np.asarray(seed_zyx).ravel())
+    if len(seed) != 3:
+        raise ValueError("seed must have 3 coordinates")
+    if any(seed[d] < 0 or seed[d] >= img.shape[d] for d in range(3)):
+        raise ValueError(f"seed {seed} out of bounds for shape {img.shape}")
+
+    # Build max-tree of superlevel connected components.
+    # For 3D, connectivity=1 corresponds to 6-connectivity (face neighbors).
+    parent_img, S = max_tree(
+        img, connectivity=1
+    )  # C-accelerated :contentReference[oaicite:1]{index=1}
+    P = parent_img.ravel()
+    img_r = img.ravel()
+    n = img_r.size
+
+    seed_idx = np.ravel_multi_index(seed, img.shape)
+
+    # Mark all ancestors of the seed in the max-tree
+    is_seed_anc = np.zeros(n, dtype=bool)
+    cur = seed_idx
+    while True:
+        is_seed_anc[cur] = True
+        nxt = P[cur]
+        if nxt == cur:  # root (in skimage canonical max-tree, root is its own parent)
+            break
+        cur = nxt
+
+    # For each node, store the *first* ancestor (towards root) that lies on seed's ancestor chain.
+    # Because S is ordered parent-before-children, we can propagate in one pass. :contentReference[oaicite:2]{index=2}
+    seedlink = np.empty(n, dtype=P.dtype)
+    root = S[0]
+    seedlink[root] = root
+
+    for i in S[1:]:
+        seedlink[i] = i if is_seed_anc[i] else seedlink[P[i]]
+
+    out = img_r[seedlink].reshape(img.shape)
+    return out
 
 
 def segment_geometric_object(
@@ -382,7 +487,87 @@ def segment_brain(
         radius_dilation=radius_dilation,
         verbose=verbose,
     )
+
     return seg_final
+
+
+"""---------------------------------------------------------------------------------------------------------------------
+Timing
+---------------------------------------------------------------------------------------------------------------------"""
+
+
+@contextmanager
+def timer(name, store):
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        store[name].append(time.perf_counter() - t0)
+
+
+def segment_brain_timed(
+    img_flair,
+    img_t1ce,
+    normalize="max",
+    sigma=1,
+    enhance=(False, False),
+    radius_enhance=1,
+    dilate=True,
+    radius_dilation=1,
+    whole_threshold=1,
+    max_bars=2,
+    verbose=False,
+    plot=False,
+    save=False,
+    timings=None,  # pass a dict to collect timings across many cases
+):
+    if timings is None:
+        timings = defaultdict(list)
+
+    # Preprocess image.
+    with timer("preprocess", timings):
+        img_flair, img_t1ce = preprocess_brain(
+            img_flair,
+            img_t1ce,
+            sigma=sigma,
+            normalize=normalize,
+            enhance=enhance,
+            radius_enhance=radius_enhance,
+            dilate=dilate,
+            radius_dilation=radius_dilation,
+        )
+
+    # Module 1: Segmentation whole object.
+    with timer("module1", timings):
+        seg_whole = segment_whole_object(
+            img=img_flair,
+            threshold=whole_threshold,
+            verbose=verbose,
+            plot=plot,
+            save=save,
+        )
+
+    # Module 2: Segmentation geometric object.
+    with timer("module2", timings):
+        seg_geom = segment_geometric_object(
+            img=img_t1ce,
+            seg_whole=seg_whole,
+            max_bars=max_bars,
+            verbose=verbose,
+            plot=plot,
+            save=save,
+        )
+
+    # Module 3: Deduce final segmentation.
+    with timer("module3", timings):
+        seg_final = segment_other_components(
+            seg_whole=seg_whole,
+            seg_geom=seg_geom,
+            radius_dilation=radius_dilation,
+            verbose=verbose,
+        )
+
+    return seg_final, timings
 
 
 """---------------------------------------------------------------------------------------------------------------------
@@ -730,11 +915,11 @@ def segment_whole_object_cardiac(
 
     # Plot diagram and top features
     if plot:
-        fig = plt.figure(figsize=(6, 6 / 2))
-        fig.subplots_adjust(wspace=0.05, hspace=0)
+        fig = plt.figure(figsize=(6 / 2, 6))
+        fig.subplots_adjust(wspace=0.5, hspace=0.15)
         # Plot diagram
         eps = 0.01
-        ax = fig.add_subplot(1, 2, 1)
+        ax = fig.add_subplot(2, 1, 1)
         persim.plot_diagrams(
             [
                 np.array([np.clip(bar[1:3], 0, 1) for bar in barcode if bar[0] == i])
@@ -748,7 +933,7 @@ def segment_whole_object_cardiac(
         plt.title("Persistence diagram", fontsize=10)
 
         # Plot connected components
-        ax = fig.add_subplot(1, 2, 2)
+        ax = fig.add_subplot(2, 1, 2)
         ax.axis("off")
         if img.ndim == 2:
             ax.imshow(img, **DLT_KW_IMAGE, alpha=0.9)
@@ -767,7 +952,8 @@ def segment_whole_object_cardiac(
                 )
                 center = scipy.ndimage.center_of_mass(CC)
                 ax.text(int(center[1]), int(center[0]), i, color="white")
-        plt.tight_layout()
+        # plt.tight_layout()
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
         if save:
             plt.savefig(
                 "results/cardiac_module_1_local.pdf", format="pdf", bbox_inches="tight"
@@ -796,16 +982,16 @@ def segment_whole_object_cardiac(
             seg_RV_slice,
             seg_union_slice,
         ) in slices_to_plot:
-            fig = plt.figure(figsize=(9, 9 / 3))
+            fig = plt.figure(figsize=(6, 3))
             fig.subplots_adjust(wspace=0.05, hspace=0)
 
-            ax = fig.add_subplot(1, 3, 1)
+            ax = fig.add_subplot(1, 2, 1)
             ax.axis("off")
             ax.imshow(img_slice, **DLT_KW_IMAGE, alpha=0.9)
             ax.imshow(3 * seg_LV_slice + 1 * seg_RV_slice, **DLT_KW_SEG)
             ax.set_title("Segmentation of LV and RV")
 
-            ax = fig.add_subplot(1, 3, 2)
+            ax = fig.add_subplot(1, 2, 2)
             ax.axis("off")
             ax.imshow(img_slice, **DLT_KW_IMAGE, alpha=0.9)
             ax.imshow(
@@ -814,12 +1000,6 @@ def segment_whole_object_cardiac(
                 origin="lower",
             )
             ax.set_title("Segmentation of whole object")
-
-            ax = fig.add_subplot(1, 3, 3)
-            ax.axis("off")
-            ax.imshow(img_slice, **DLT_KW_IMAGE, alpha=0.9)
-            ax.imshow(seg_medecin_slice, **DLT_KW_SEG)
-            ax.set_title("Ground-truth segmentation")
 
             plt.tight_layout()
             if save:
@@ -1040,26 +1220,6 @@ def segment_cardiac(
         get_multiple_dice(
             seg_final[:, :, 1:], seg_gt[:, :, 1:], labels=(1, 2, 3), verbose=True
         )
-
-    #    if plot:
-    if False:
-        # Plot all segmentations in slices
-        for z in range(img.shape[2]):
-            fig, axs = plt.subplots(1, 4, figsize=(16, 4))
-            axs[0].imshow(img[:, :, z], cmap="gray", origin="upper")
-            axs[0].set_title("Image")
-            axs[0].axis("off")
-            axs[1].imshow(seg_gt[:, :, z], **DLT_KW_SEG)
-            axs[1].set_title("Ground Truth")
-            axs[1].axis("off")
-            axs[2].imshow(seg_final[:, :, z], **DLT_KW_SEG)
-            axs[2].set_title("Final Segmentation")
-            axs[2].axis("off")
-            axs[3].imshow(seg_whole[:, :, z], **DLT_KW_SEG)
-            axs[3].set_title("Whole Object")
-            axs[3].axis("off")
-            plt.tight_layout()
-            plt.show()
     return seg_final
 
 

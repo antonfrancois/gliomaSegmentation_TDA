@@ -4,7 +4,6 @@ Train-Free Segmentation in MRI with Cubical Persistent Homology
 Anton François & Raphaël Tinarrage
 See the repo at https://github.com/antonfrancois/gliomaSegmentation_TDA and article at https://arxiv.org/abs/2401.01160
 
-
 ------------------------------------------------------------------------------------------------------------------------
 
 Functions:
