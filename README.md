@@ -5,6 +5,7 @@
 This repository contains the code accompanying our article 
 **Train-Free Segmentation in MRI with Cubical Persistent Homology**, 
 to appear in the *Journal of Mathematical Imaging and Vision*.
+See [arXiv:2401.01160](https://arxiv.org/abs/2401.01160).
 
 ## Overview
 
