@@ -280,6 +280,8 @@ def plot_comparison_full_segmentations(
             make_3d_flat(seg_superpose, pos),
             cmap=CMAP_COMPARISON,
             interpolation="nearest",
+            vmin=0,
+            vmax=3,
         )
         ax[3].text(300, 25, "Comparison", c="white", fontsize=20)
 
@@ -299,6 +301,8 @@ def plot_comparison_full_segmentations(
             make_3d_flat(seg_superpose, pos),
             cmap=CMAP_COMPARISON,
             interpolation="nearest",
+            vmin=0,
+            vmax=3,
         )
         ax[2].text(300, 25, "Comparison", c="white", fontsize=20)
 

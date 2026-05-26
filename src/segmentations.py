@@ -239,7 +239,7 @@ def segment_whole_object(
             ChronometerStop(start_time, method="s")
         if finetune:
             from utils import argmax_image
-            from tests import get_best_component, suggest_t_sphericity
+            from morphology import get_best_component, suggest_t_sphericity
 
             # Extract the most spherical component.
             min_sphere = 0.5
